@@ -1,0 +1,9 @@
+#!/bin/sh
+# Find a python the same way on every machine in the team. Git for Windows ships
+# this shell, but not a python, and `py` exists only on Windows.
+for c in python python3 "py -3"; do
+  if $c -c "import sys" >/dev/null 2>&1; then exec $c "$@"; fi
+done
+echo "  BLOCKED  vault guard: no python on PATH, so the commit guards cannot run." >&2
+echo "           Install python, or bypass deliberately with --no-verify." >&2
+exit 1

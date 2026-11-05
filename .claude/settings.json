@@ -1,0 +1,64 @@
+{
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official",
+        "ref": "3ea32df27be71d78775e627df2382fc26203577f"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "central@skills": true,
+    "humanizer@skills": true,
+    "token-weather-usage@skills": true,
+    "flightdeck@skills": true,
+    "next-steps@skills": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/session_gate.py",
+            "timeout": 30,
+            "statusMessage": "Checking vault rule gates..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/review_output.py --gate",
+            "timeout": 15,
+            "statusMessage": "Checking raw/output for untriaged artifacts..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob|Bash|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/pii_gate.py",
+            "timeout": 10,
+            "statusMessage": "Checking the PII gate..."
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Read(./wiki/internal/playbooks/services-team/2026-graduate-programme/candidates/**)",
+      "Read(./wiki/internal/playbooks/services-team/ludo-s-schedule.md)"
+    ]
+  }
+}

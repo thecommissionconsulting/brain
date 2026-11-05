@@ -1,0 +1,15 @@
+name: vault-lint
+on: [push, pull_request, workflow_dispatch]
+permissions: { contents: read }
+jobs:
+  frontmatter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pyyaml
+      - run: python scripts/check_frontmatter.py
+      - run: python scripts/check_links.py
+      - run: python scripts/check_maps.py
+      - run: python scripts/check_schema_sync.py

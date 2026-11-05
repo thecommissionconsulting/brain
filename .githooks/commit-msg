@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$(dirname "$0")/_python" scripts/hooks_guard.py commit-msg "$1"

@@ -1,0 +1,122 @@
+name: branch-policy
+
+# Soft guards while the org is on GitHub Free (no branch rulesets).
+# These fail the check / surface noise — they cannot block a direct push without Team+.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  main-hygiene:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Reject vault-backup commits on main
+        # Obsidian Git auto-commits must stay on capture, not main.
+        run: |
+          set -euo pipefail
+          # Commits introduced by this push (before..after); fall back to last 10 on first run
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            RANGE="${AFTER}~10..${AFTER}"
+          else
+            RANGE="${BEFORE}..${AFTER}"
+          fi
+          bad=$(git log --format='%h %s' "$RANGE" | grep -E ' vault backup:' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Obsidian 'vault backup' commits must not land on main. Use branch 'capture', then open a PR."
+            echo "$bad"
+            exit 1
+          fi
+          echo "No vault-backup commits in push range."
+
+  pr-hygiene:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Discourage long-lived integration branches as PR heads
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          case "$HEAD_REF" in
+            capture|feature/develop|develop)
+              echo "::warning title=Prefer topic branches::PR head is '$HEAD_REF'. Prefer a short-lived knowledge/…, client/…, internal/…, or chore/… branch (or squash-curate from capture first). See internal/vault-git.md."
+              ;;
+            main)
+              echo "::error::Do not open PRs from main into main."
+              exit 1
+              ;;
+            *)
+              echo "PR head '$HEAD_REF' looks like a topic branch — OK."
+              ;;
+          esac
+
+      - name: Flag vault-backup-only PR history
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          msgs=$(git log --format='%s' "${BASE}..${HEAD}" || true)
+          if [ -z "$msgs" ]; then
+            echo "No commits in range."
+            exit 0
+          fi
+          total=$(printf '%s\n' "$msgs" | wc -l)
+          backups=$(printf '%s\n' "$msgs" | grep -cE '^vault backup:' || true)
+          if [ "$backups" -gt 0 ] && [ "$backups" -eq "$total" ]; then
+            echo "::warning title=Backup-only PR::All $total commits are 'vault backup'. Curate real knowledge (topic branch or selective cherry-pick) before merge — do not dump raw capture onto main."
+          fi
+          echo "Commits: $total (vault-backup: $backups)"
+
+  # Server-side mirror of the local hooks. core.hooksPath is per-clone config that
+  # git will not clone, so someone who has not run scripts/install_hooks.py has no
+  # guards at all. This catches their PR. It runs after the push, so it is still
+  # detection rather than prevention -- the hooks are the prevention.
+  vault-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Guard the diff (R-30 secrets, R-32 zones, R-33 sensitive content)
+        run: |
+          python scripts/hooks_guard.py range \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
+
+      - name: Warn if the guards were removed or weakened
+        # Turning the protection off is itself a reviewable change.
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}")
+          for f in scripts/hooks_guard.py .githooks/pre-commit .githooks/pre-push \
+                   .githooks/commit-msg .github/CODEOWNERS .gitignore; do
+            if printf '%s\n' "$changed" | grep -qx "$f"; then
+              echo "::warning title=Guard changed::$f is part of the vault's protection. Confirm this PR is meant to change it."
+            fi
+          done
+          echo "Guard-file check done."

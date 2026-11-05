@@ -1,0 +1,32 @@
+# Review routing for PRs into this vault.
+#
+# Without GitHub Team branch protection this does not *block* a merge -- it
+# auto-requests reviewers so PRs get eyes. When Team+ rulesets land, pair it with
+# "require review from code owners" and this file starts enforcing.
+#
+# Paths were rewritten for the restructured layout (2026-09-17). The previous
+# entries still pointed at the obsidian-legacy tree -- /knowledge-base/ and
+# /playbooks/ were top-level there and matched nothing here, so those two rules
+# had been silently dead since the restructure.
+
+# Default: vault maintainers
+*                                   @phildonovan
+
+# Shared knowledge and the AI map -- keep discoverability intentional
+/wiki/internal/knowledge-base/      @phildonovan
+/wiki/internal/playbooks/           @phildonovan
+/_ai/                               @phildonovan
+/index.md                           @phildonovan
+
+# Client material: the boundary between this vault and the per-client repos (R-29)
+/wiki/clients/                      @phildonovan
+
+# The guardrails themselves. A change here is how someone would turn the
+# protection off, so it always gets a second pair of eyes.
+/.github/                           @phildonovan
+/.githooks/                         @phildonovan
+/scripts/hooks_guard.py             @phildonovan
+/scripts/install_hooks.py           @phildonovan
+/.gitignore                         @phildonovan
+/.gitattributes                     @phildonovan
+/CLAUDE.md                          @phildonovan
