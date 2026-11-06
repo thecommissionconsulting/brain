@@ -62,8 +62,8 @@ the hook does nothing.
   Windows; on macOS put an unversioned `python` in your own bin folder, for example
   `mkdir -p ~/.local/bin && ln -s "$(command -v python3)" ~/.local/bin/python`, with
   `~/.local/bin` on PATH.
-- **Node.js or Bun, for some plugins.** `context-mode`, `session-memory`, and `gsd-core`
-  on machines that still have it, run their hooks with Node.js. Install it
+- **Node.js or Bun, for some plugins.** `context-mode` and `session-memory` run their
+  hooks with Node.js. Install it
   (`winget install --id OpenJS.NodeJS.LTS -e --scope user` on Windows, `brew install node`
   on macOS) or
   uninstall the plugin.
@@ -83,9 +83,7 @@ They never fail `--check`:
 - **tzdata**, Windows only: `timesheet-recall` reads times in Pacific/Auckland, and
   Windows has no timezone database of its own. `python -m pip install --user tzdata`.
 
-`gsd-core` left the marketplace with no replacement and is uninstalled as a retired
-plugin. `claude-mem` is uninstalled too, but its successor `session-memory` is not
-installed for you: it needs Node.js, installs Bun, uv and Chroma, and sends transcripts
+`claude-mem`'s successor, `session-memory`, is not installed for you: it needs Node.js, installs Bun, uv and Chroma, and sends transcripts
 to an LLM provider, so it stays opt-in. Read its section in the skills README first.
 
 Restart Claude Code after an apply run. Plugins, hooks and settings load only when a
@@ -225,12 +223,6 @@ off, so it also works in a shell prompt or a startup script.
 Keep firm and personal trees apart (projects + vaults). Personal clients must **not** get
 `clients/` stubs in this vault. See [[client-engagement-structure]].
 
-**Machine paths** (projects root, vault clone, each client workspace) live only in gitignored
-`_local/workspace-bindings.md` and `_local/cli-bindings.md` — not in shared client notes.
-`install_vault.py` writes both from detection and reports which fields it could not fill;
-`--bindings key=value` fills those in afterwards. `_local/` is gitignored in full, so no
-template ships with a clone and nothing you write there ever syncs.
-
 
 ## 2. Install the tools you use (per OS)
 - **Python** — for `paymo-sync`. Any 3.x; invoke as `python` on Windows, or your conda/venv
@@ -267,12 +259,14 @@ workspace that needs the vault's router imports it from its own `CLAUDE.md`, e.g
 
 ## 4. Your machine-local config lives in `_local/` (gitignored)
 
-Personal, machine-specific bindings — Snowflake/dbt/GitHub connection names, config-file paths,
-`gh` account, git identity — go in the vault's **`_local/`** folder, which is gitignored.
+Personal, machine-specific bindings — projects root, vault clone, client workspaces,
+Snowflake/dbt/GitHub connection names, config-file paths, `gh` account, git identity — go
+in the vault's **`_local/`** folder, which is gitignored and never syncs.
 `python scripts/install_vault.py` writes `_local/cli-bindings.md` and
 `_local/workspace-bindings.md` for you, reading the paths, the git identity, the `gh`
 account, the Snowflake connection names and the dbt project off the machine itself. Only the
-fields it cannot detect are left blank, and it names them.
+fields it cannot detect are left blank, and it names them; fill them with
+`--bindings key=value`.
 
 - **Never put real secrets/tokens in `_local/`** — they stay in the tools' own config
   (`~/.snowflake/connections.toml`, `~/.dbt/dbt_cloud.yml`, `~/.config/gh/hosts.yml`). `_local/`
@@ -316,8 +310,7 @@ and never syncs to another machine. Each machine builds its own.
 
 Three Claude Code hooks are configured in `.claude/settings.json`, which is committed, so
 they apply to every clone without further setup. A fourth, the `answer-only`
-`UserPromptSubmit` gate, lives in your global `~/.claude/settings.json` and is the one step
-above that a clone cannot carry for you.
+`UserPromptSubmit` gate, ships with the `central` plugin.
 
 `SessionStart` runs `scripts/session_gate.py`: the two sub-second gates plus the `index.md`
 byte budget, so a session opens knowing which rules in [[rules]] are currently red. It

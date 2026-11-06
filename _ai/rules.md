@@ -29,7 +29,7 @@ machine). Writing style is the `humanizer` skill, not a note.
 | **MANUAL** | Written down, nothing checks it. Held by review and habit only. |
 
 A MANUAL rule is not a weak rule, it is an *unguarded* one. Promoting rules up this scale
-is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 24 MANUAL.
+is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 29 MANUAL.
 
 ## The register
 
@@ -59,7 +59,7 @@ is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 24 MANUAL
 | R-22 | Retrieval | Every note opens with an `Answers:` block | [[retrieval]] | — | MANUAL | ok |
 | R-23 | Retrieval | Sections are single-topic and short, because search matches sections | [[retrieval]] | — | MANUAL | ok |
 | R-24 | Retrieval | A mention that deserves a note becomes a wikilink | §Linking | — | MANUAL | ok |
-| R-25 | Retrieval | No orphans — every note is reachable from a hub or MOC | §Linking | `check_links.py` §2 reports unresolved targets only | WARN | **breached** — 18 unresolved link targets |
+| R-25 | Retrieval | No orphans — every note is reachable from a hub or MOC | §Linking | `check_links.py` §2 reports unresolved targets only | WARN | **breached** — 29 unresolved link targets, all pointing into `wiki/` notes absent from this clone |
 | R-26 | Retrieval | Grep excludes `raw/`, `archive/`, `_local/`, `.confluence-private/` | [[retrieval]] | — | MANUAL | ok |
 | R-27 | Data | Blocked source zones never reach the vault by any route | `exclusions.py` docstring | `exclusions.py` `blocked()`, called by importer and router | **HARD** | ok |
 | R-28 | Data | Sensitive filename patterns are reported, not removed | `exclusions.py` docstring | `exclusions.py` `flagged()` | WARN | ok |
@@ -84,6 +84,11 @@ is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 24 MANUAL
 | R-47 | Model | The model never invents a frontmatter field or type value | §Schema | `check_frontmatter.py` | **HARD** | ok |
 | R-48 | Model | Generated artifacts — a report, export or scratch file — are written to `raw/output/`, never into `wiki/` | §Permissions | `.gitignore` keeps `raw/` out of the repo; nothing checks the placement itself | MANUAL | ok |
 | R-49 | Model | Artifacts in `raw/output/` are triaged with the owner before the session ends | §Artifact triage | `review_output.py --gate` on Stop, once per session, from `.claude/settings.json` | WARN (local) | ok |
+| R-50 | Reply | Every request is a Question, a Task or a Build; a Task or Build opens with a brief and waits for "go" | §Response contract | — | MANUAL | ok |
+| R-51 | Reply | Only agreed work is done; growth means a new brief, unclarity means one question | §Response contract | — | MANUAL | ok |
+| R-52 | Reply | Opus plans, Haiku executes; a blocked Haiku stops and only Opus changes the plan | §Response contract | — | MANUAL | ok |
+| R-53 | Reply | Every Task and Build has an ETA; an overrun stops work with a reason and a new estimate | §Response contract | — | MANUAL | ok |
+| R-54 | Reply | Replies lead with the point; a Question gets about five lines | §Response contract | — | MANUAL | ok |
 
 Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
@@ -159,7 +164,7 @@ demands an owner. The registry is closed: to add a type, edit `ALLOWED_TYPES` in
 
 Claude Code reads and greps the filesystem. It does **not** traverse `[[wikilinks]]` the way
 Obsidian does. So `index.md` is the always-loaded router: keep it lean and link out, and CI
-warns when it grows past its 250-line budget. Notes must be findable by content, through a
+warns when it grows past its 32 KiB budget (R-10). Notes must be findable by content, through a
 clear title, headings, and the words someone would actually search, not only by links.
 Wikilinks build the human graph; the AI's retrieval is the map plus search.
 
@@ -236,7 +241,7 @@ note, [[retrieval]] and a direct human instruction carry authority.
 - The default route is `index.md` → folder hub → grep. Two hops before a note.
 - Vector retrieval replaces that route **only** for the duration of an explicit skill call.
   Never a hook, never ambient. See [[vault-rag]] §5.
-- skills live in plugins outside this repo, so a client question cannot retrieve tooling
+- Skills live in plugins outside this repo, so a client question cannot retrieve tooling
   instructions.
 - 238 notes are frontmatter-only stubs with no retrievable body. If a question returns
   nothing, that gap is the first suspect. See [[vault-rag]] §4.1.
@@ -249,6 +254,21 @@ note, [[retrieval]] and a direct human instruction carry authority.
 - A deliverable too long for the reply — a report, an audit, an export — is written to
   `raw/output/` and named in the reply, rather than pasted into the chat or filed as a note.
   It becomes a note only when a human decides it is vault content.
+
+## Response contract
+
+How Claude handles every request (R-50 to R-54).
+
+- **Request types.** Each request is a Question, a Task or a Build. A Question gets a
+  short answer and changes nothing. A Task or Build opens with a brief: the goal, the
+  next steps and an ETA. Claude then waits for the user's "go".
+- **Scope.** Claude does only what was agreed. If the work grows, it stops and sends a
+  new brief. If the request is unclear, it asks one question.
+- **Plan and execution.** Opus writes the plan and Haiku carries it out. If Haiku is
+  blocked it stops, and only Opus changes the plan.
+- **Time.** Every Task and Build has an ETA. If the work runs past it, Claude stops,
+  explains why and gives a new estimate.
+- **Reply length.** Answers lead with the point. A Question gets about five lines.
 
 ## Artifact triage
 
