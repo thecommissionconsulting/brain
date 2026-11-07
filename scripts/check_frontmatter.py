@@ -23,7 +23,7 @@ REQUIRED = {"engagement": ["status", "client_id", "owner", "created"],
             "tool": ["status", "owner", "created"]}
 SKIP_PREFIX = ("_ai/", "_local/", ".obsidian/", ".claude/", ".agents/",
                "raw/", ".confluence-private/", "scripts/", "assets/",
-               ".superpowers/")
+               ".superpowers/", "marketplace/")
 EXEMPT = {"README.md", "index.md", "CLAUDE.md"}
 
 

@@ -1,0 +1,32 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "fixture.jsonl",
+  "cwd": "C:/fixture",
+  "scratchpad_dir": "C:/fixture/scratchpad",
+  "prompt_id": "fixture-prompt",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "C:\\fixture\\dot.png"
+  },
+  "tool_response": {
+    "type": "image",
+    "file": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf",
+      "type": "image/png",
+      "originalSize": 70,
+      "dimensions": {
+        "originalWidth": 1,
+        "originalHeight": 1,
+        "displayWidth": 1,
+        "displayHeight": 1
+      }
+    }
+  },
+  "tool_use_id": "toolu_fixture",
+  "duration_ms": 35
+}

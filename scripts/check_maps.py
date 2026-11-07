@@ -141,7 +141,7 @@ else:
 
 # ---- 2. Vault map (§9): every leaf folder's PATH is named in index.md -------
 SKIP_DIRS = {".git", ".github", ".obsidian", ".claude", ".agents",
-             ".confluence-private", "raw", "_local", "scripts", "assets"}
+             ".confluence-private", "raw", "_local", "scripts", "assets", "marketplace"}
 
 
 def leaf_folders(root: pathlib.Path):

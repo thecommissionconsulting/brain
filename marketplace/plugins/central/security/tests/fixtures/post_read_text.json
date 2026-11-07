@@ -1,0 +1,28 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "fixture.jsonl",
+  "cwd": "C:/fixture",
+  "scratchpad_dir": "C:/fixture/scratchpad",
+  "prompt_id": "fixture-prompt",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "C:\\fixture\\probe.txt"
+  },
+  "tool_response": {
+    "type": "text",
+    "file": {
+      "filePath": "C:\\fixture\\probe.txt",
+      "content": "line one SPIKE-ORIGINAL\n",
+      "numLines": 2,
+      "startLine": 1,
+      "totalLines": 2
+    }
+  },
+  "tool_use_id": "toolu_fixture",
+  "duration_ms": 24
+}

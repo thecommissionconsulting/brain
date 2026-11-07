@@ -28,8 +28,9 @@ then grep. Two hops before a note.
 
 ## 5. Skills
 
-No skills live in this repo. Every one is a plugin, installed from the
-`skills` marketplace or from Anthropic's, and called by its plugin name.
+No skills live in this repo's notes. Every one is a plugin, installed from the
+`skills` marketplace or from Anthropic's, and called by its plugin name. The `skills`
+marketplace itself is committed here, under `marketplace/`, and grep skips it.
 `python scripts/install_vault.py` adds the marketplaces and installs them.
 
 Four plugins, and only `superpowers` ships skills. `central` and `humanizer` were
@@ -37,9 +38,9 @@ retired on 2026-11-07; the installer uninstalls them where it finds them.
 
 - `token-weather-usage` — the local band above the prompt: usage limits, prompt cache
   time left, cost, running subagents, and a Handoff button that writes a handoff note.
-  No skills. Source: the `skills` marketplace folder beside this vault, `plugins/token-weather-usage/`.
+  No skills. Source: `marketplace/plugins/token-weather-usage/`.
 - `flightdeck` — the local pane of permission checks and subagents (`/flightdeck`). No skills.
-  Source: the `skills` marketplace folder beside this vault, `plugins/flightdeck/`.
+  Source: `marketplace/plugins/flightdeck/`.
 - `next-steps` — third-party (MIT), suggests up to three follow-up prompts after each
   answer. No skills. Referenced by the `skills` marketplace, pinned to a reviewed commit.
 - `superpowers` — Anthropic's, from `claude-plugins-official`. Brainstorming,
