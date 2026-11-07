@@ -35,7 +35,7 @@ and they will drown a search:
 ```
 grep -rli --include='*.md' \
   --exclude-dir=.git --exclude-dir=confluence --exclude-dir=.confluence-private \
-  --exclude-dir=archive --exclude-dir=_local \
+  --exclude-dir=archive --exclude-dir=_local --exclude-dir=marketplace \
   -e 'your pattern' .
 ```
 

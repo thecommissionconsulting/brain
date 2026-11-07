@@ -1,0 +1,35 @@
+{
+  "name": "token-weather-usage",
+  "version": "3.10.7-local.5",
+  "description": "One line above the prompt: context tokens with their weather, a bar per recent prompt, your 5-hour and 7-day limits against the time elapsed, the prompt cache with its time left, the session cost, and the subagents running. Labels in English or French. After Token Weather (Anthropic, Apache-2.0) and the ideas of usage-meter (HolyGrail) and prompt-cache-control (Daniel San). This copy (upstream augiefra/claude-mods 701aa6f, Apache-2.0): in the desktop app the pills wrap to the band's width instead of being cut off; a two-press Handoff button writes a handoff note to ~/.claude/handoffs, compacts, then ends the session; the agents pill opens /flightdeck.",
+  "author": {
+    "name": "Eric Cologni"
+  },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/augiefra/claude-mods",
+  "displayName": "Token Weather Usage",
+  "homepage": "https://github.com/augiefra/claude-mods",
+  "keywords": [
+    "mod",
+    "statusline",
+    "usage",
+    "rate-limits",
+    "prompt-cache",
+    "context",
+    "token-weather"
+  ],
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Labels in English (en) or French (fr), or auto: follows LC_ALL, LC_MESSAGES or LANG, and falls back to English.",
+      "default": "auto"
+    },
+    "context": {
+      "title": "Context pill",
+      "description": "Show the context pill: the weather icon, the context in tokens, the recent-turns chart and the last turn's change",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

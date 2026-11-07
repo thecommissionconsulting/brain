@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
+  "name": "skills",
+  "description": "In-house Claude Code skills, plus vetted third-party plugins pinned to reviewed commits",
+  "owner": {
+    "name": "Local"
+  },
+  "plugins": [
+    {
+      "name": "central",
+      "source": "./plugins/central",
+      "description": "In-house skills: answer-only replies with a PII prompt gate, security hooks that keep credentials out of the model's context, the caveman token-compression suite, document conversion, method skills for scoping and executing code changes, a data-model audit, and the vault tooling.",
+      "category": "development",
+      "keywords": [
+        "writing",
+        "tokens",
+        "engineering",
+        "refactor",
+        "migration",
+        "vault",
+        "data-modelling",
+        "audit",
+        "dbt",
+        "sap",
+        "security"
+      ]
+    },
+    {
+      "name": "humanizer",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/blader/humanizer.git",
+        "sha": "9862685f575c65a8247f90369951df1b3416e3d6"
+      },
+      "description": "Rewrite AI-sounding text so it reads like the writer without changing what it says. Third-party, MIT, pinned to a reviewed commit.",
+      "author": {
+        "name": "blader",
+        "url": "https://github.com/blader"
+      },
+      "license": "MIT",
+      "category": "writing",
+      "keywords": [
+        "writing",
+        "editing",
+        "prose",
+        "style"
+      ]
+    },
+    {
+      "name": "context-mode",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/mksglu/context-mode.git",
+        "sha": "ab347abd23cdf08b8dbfa74d86e202b41b10654a"
+      },
+      "description": "Routes large tool output through a local sandbox and an FTS5 index instead of the context window. Third-party, Elastic License 2.0 (source-available, NOT open source), pinned to a reviewed commit. Its hooks intercept Bash, Read, Grep, WebFetch and Agent calls, and ctx_execute runs arbitrary code by design.",
+      "author": {
+        "name": "Mert Koseoglu",
+        "url": "https://github.com/mksglu"
+      },
+      "license": "Elastic-2.0",
+      "category": "productivity",
+      "keywords": [
+        "context",
+        "tokens",
+        "search",
+        "sandbox"
+      ]
+    },
+    {
+      "name": "session-memory",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/thedotmack/claude-mem.git",
+        "sha": "ade13f3067d3de486f41dbd8ed90ac5c854de718"
+      },
+      "description": "Cross-session memory: compresses session transcripts into a searchable store. Third-party, Apache-2.0, pinned to a reviewed commit. Runs a persistent local worker, auto-installs Bun, uv and Chroma, hooks every tool call, and sends transcripts to an LLM provider for compression. PostHog telemetry ships on by default: run `npx claude-mem telemetry disable` after installing. Do not use it in a session handling client material under NDA without checking where compression runs.",
+      "author": {
+        "name": "thedotmack",
+        "url": "https://github.com/thedotmack"
+      },
+      "license": "Apache-2.0",
+      "category": "productivity",
+      "keywords": [
+        "memory",
+        "sessions",
+        "search"
+      ]
+    },
+    {
+      "name": "next-steps",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/anthropics/claude-plugins-community.git",
+        "path": "next-steps",
+        "sha": "f60f0454df3045f724c43c6346ec80bdcc3472b2"
+      },
+      "strict": false,
+      "description": "After each turn, suggests up to three next prompts above the input. Press 1, 2 or 3 to put one in the prompt box as a draft you can edit, 0 to dismiss. Third-party, MIT, pinned to a reviewed commit. A function-hooks plugin with no skills: after every answer of 80 characters or more it forks the session for one short extra model call, and it never submits a prompt on its own.",
+      "author": {
+        "name": "Thariq Shihipar"
+      },
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "suggestions",
+        "prompt",
+        "function-hooks",
+        "ui"
+      ]
+    },
+    {
+      "name": "token-weather-usage",
+      "source": "./plugins/token-weather-usage",
+      "description": "One band above the prompt: context tokens with a weather icon, the 5-hour and 7-day limits against the time elapsed, the prompt cache's time left, the session cost and the running subagents. This copy of Eric Cologni's plugin (Apache-2.0, upstream 701aa6f): in the desktop app the pills wrap to fit the band. No network requests and no model calls.",
+      "author": {
+        "name": "Eric Cologni",
+        "url": "https://github.com/augiefra"
+      },
+      "license": "Apache-2.0",
+      "category": "productivity",
+      "keywords": [
+        "usage",
+        "rate-limits",
+        "prompt-cache",
+        "context",
+        "function-hooks"
+      ]
+    },
+    {
+      "name": "flightdeck",
+      "source": "./plugins/flightdeck",
+      "description": "A live pane of the session's permission checks and subagents, one lane per agent. This copy of Stephen Casella's plugin (MIT, upstream f31daca): by default it shows only the permission gate and the agents, every agent gets a lane, and options bring back the header, time axis and card details. No file, process, network or model access.",
+      "author": {
+        "name": "Stephen Casella",
+        "url": "https://github.com/scasella"
+      },
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "agents",
+        "subagents",
+        "dashboard",
+        "observability",
+        "function-hooks"
+      ]
+    }
+  ]
+}

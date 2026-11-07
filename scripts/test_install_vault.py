@@ -204,8 +204,8 @@ def main():
         case("unreadable settings leave every plugin pending",
              len(iv.plugin_gaps(iv.plugin_settings())), len(iv.PLUGINS))
 
-    case("the skills marketplace is the folder beside the vault",
-         iv.PLUGINS[0][2], str(ROOT.parent.parent / "skills" / "skills-main"))
+    case("the skills marketplace is marketplace/ in the vault",
+         iv.PLUGINS[0][2], str(ROOT / "marketplace"))
     case("token-weather-usage installs from the skills marketplace",
          ("token-weather-usage", "skills", iv.SKILLS_SOURCE) in iv.PLUGINS,
          True)

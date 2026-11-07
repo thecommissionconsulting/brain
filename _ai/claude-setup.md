@@ -44,7 +44,7 @@ any folder and say "Follow `<path to this file>` step by step. Ask me before eac
 ## Step 1. Make the folders
 
 ```powershell
-New-Item -ItemType Directory -Force "$HOME\.claude\output-styles", "$HOME\.claude\scripts", "$HOME\.claude\local-plugins\plugins", "$HOME\.claude\local-plugins\.claude-plugin" | Out-Null
+New-Item -ItemType Directory -Force "$HOME\.claude\output-styles", "$HOME\.claude\scripts" | Out-Null
 ```
 
 Check: `Test-Path "$HOME\.claude\scripts"` prints `True`.
@@ -135,50 +135,27 @@ only in the `TYPESAFE_API_KEY` environment variable.
 claude plugin install superpowers@claude-plugins-official
 ```
 
-**4b. The two local mods.** On the OLD machine, copy these two folders:
+**4b. Get the mods marketplace.** It lives in the mainBrain repo, in `marketplace/`.
+You need read access to `DataWithDaru/mainBrain` on GitHub.
 
-- `C:\Users\ghostDog\Desktop\Projects\skills\skills-main\plugins\flightdeck`
-- `C:\Users\ghostDog\Desktop\Projects\skills\skills-main\plugins\token-weather-usage`
-
-Skip any `node_modules` folder inside them. On the NEW machine, put both folders in
-`$HOME\.claude\local-plugins\plugins\`.
-
-**4c. The local marketplace.** Write this file exactly:
-`$HOME\.claude\local-plugins\.claude-plugin\marketplace.json`
-
-```json
-{
-  "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
-  "name": "skills",
-  "description": "Daru's mods",
-  "owner": { "name": "Local" },
-  "plugins": [
-    {
-      "name": "next-steps",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/anthropics/claude-plugins-community.git",
-        "path": "next-steps",
-        "sha": "f60f0454df3045f724c43c6346ec80bdcc3472b2"
-      },
-      "strict": false,
-      "description": "After each turn, suggests up to three next prompts above the input."
-    },
-    {
-      "name": "token-weather-usage",
-      "source": "./plugins/token-weather-usage",
-      "description": "One line above the prompt: context tokens with their weather."
-    },
-    {
-      "name": "flightdeck",
-      "source": "./plugins/flightdeck",
-      "description": "A live agent dashboard for Claude Code."
-    }
-  ]
-}
+```powershell
+git clone --depth 1 https://github.com/DataWithDaru/mainBrain.git "$HOME\.claude\mainBrain-tmp"
 ```
 
-**4d. Add the marketplace and install the mods:**
+Until the PR is merged into `main`, add `--branch internal/build-flow-jev` to that line.
+
+```powershell
+Copy-Item -Recurse "$HOME\.claude\mainBrain-tmp\marketplace" "$HOME\.claude\local-plugins"
+```
+
+```powershell
+Remove-Item -Recurse -Force "$HOME\.claude\mainBrain-tmp"
+```
+
+Check: `Test-Path "$HOME\.claude\local-plugins\.claude-plugin\marketplace.json"` prints `True`.
+
+**4c. Add the marketplace and install the mods.** The marketplace also lists `central`
+and `humanizer`. They are retired, so do not install them.
 
 ```powershell
 claude plugin marketplace add "$HOME\.claude\local-plugins"

@@ -18,7 +18,7 @@ import sys
 
 SKIP_PREFIX = (".git/", ".obsidian/", ".claude/", ".agents/",
                "raw/", ".confluence-private/", "scripts/", "assets/", "_local/",
-               ".superpowers/")
+               ".superpowers/", "marketplace/")
 # R-10 budgets BYTES, not lines. index.md sits in the prompt for the whole
 # session, and what that costs is characters. The old 250-line budget was blind
 # to the real problem: Obsidian's table formatter had padded the vault map to

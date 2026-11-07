@@ -74,11 +74,10 @@ BINDING_FILES = ("cli-bindings.md", "workspace-bindings.md")
 # claude-plugins-official ships with Claude Code, so its `marketplace add` is
 # usually a no-op; it is named anyway so a machine that removed it recovers.
 #
-# The skills marketplace is a folder beside this vault, not a GitHub repo:
-# <workspace>/skills/skills-main next to <workspace>/vault/vault-main. Set
-# $VAULT_SKILLS_DIR when yours lives somewhere else.
+# The skills marketplace lives in this vault, under `marketplace/`, so a clone
+# carries it. Set $VAULT_SKILLS_DIR when yours lives somewhere else.
 SKILLS_DIR = pathlib.Path(os.environ.get("VAULT_SKILLS_DIR")
-                          or ROOT.parent.parent / "skills" / "skills-main")
+                          or ROOT / "marketplace")
 SKILLS_SOURCE = str(SKILLS_DIR)
 
 PLUGINS = (
