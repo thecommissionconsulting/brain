@@ -19,6 +19,7 @@ then grep. Two hops before a note.
 - About how the company does the work → `wiki/internal/`
 - About who the company is or how the company runs → `wiki/company/`
 - Setting up a new workstation → [[new-machine]] (`_ai/`), a PowerShell script that installs Git, Python and Claude Code
+- Setting up Claude Code like Daru's (style, plugins, mods, rules, Jev) → [[claude-setup]] (`_ai/`), a portable runbook that needs no repo
 - Updating or installing the vault on a workstation → [[update]] (`_ai/`), what Claude follows for "update the vault"
 - Proving a new workstation is installed → [[vault-install-test-plan]] (`_ai/`), run by `scripts/verify_install.py`, report in `raw/output/`
 - A generated artifact — report, export, extract, scratch file → `raw/output/`, never
