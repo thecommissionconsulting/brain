@@ -1,5 +1,3 @@
-Immediately go to index.md
-
 @_local/CLAUDE.md
 
 Semantic search over the vector index is unavailable. Its skill, `central:vault-rag`,

@@ -53,7 +53,7 @@ PATTERNS = (
         r"|[A-Za-z0-9+/=\s:,]*)")),
     ("JWT", SECRET, re.compile(r"\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}")),
     ("API token", SECRET, re.compile(
-        r"\b(?:sk-ant-[\w-]{20,}|sk-[A-Za-z0-9]{32,}|gh[pousr]_[A-Za-z0-9]{36}"
+        r"\b(?:sk-ant-[\w-]{20,}|sk-[A-Za-z0-9]{32,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{36}"
         r"|github_pat_\w{22,}|AKIA[0-9A-Z]{16}|xox[baprs]-[\w-]{10,})")),
     # The value must carry a digit. Without that test the pattern fires on
     # ordinary code: `token = payload.get("user_input")` matched a plain length rule.

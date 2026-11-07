@@ -8,6 +8,8 @@ carries allowlist pragmas.
 """
 ANTHROPIC = "sk-" + "ant-api03-" + "AbCdEf0123456789xyzQrStUvW"
 GITHUB = "gh" + "p_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+STRIPE_LIVE = "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
+STRIPE_TEST = "sk_" + "test_" + "51Hx9QkLmNoPqRsTuVwXyZ01"
 AWS = "AKIA" + "IOSFODNN7EXAMPLE"
 JWT = ("ey" + "JhbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0" + "."
        + "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk")

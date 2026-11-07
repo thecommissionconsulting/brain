@@ -7,6 +7,7 @@ appears in what the script prints, because a key in a log is a leaked key.
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import pathlib
 import sys
@@ -66,6 +67,16 @@ def run_main(argv, env_key=None, fake=None):
     return code, out.getvalue(), err.getvalue()
 
 
+def run_hook_main(stdin_bytes, env_key=None, fake=None):
+    """Run main(["--hook"]) with real bytes on stdin; return (code, stdout, stderr)."""
+    real_stdin = sys.stdin
+    sys.stdin = io.TextIOWrapper(io.BytesIO(stdin_bytes), encoding="utf-8")
+    try:
+        return run_main(["--hook"], env_key=env_key, fake=fake)
+    finally:
+        sys.stdin = real_stdin
+
+
 def main():
     req = jr.build_request("  Add a CSV export to the reports page  ")
     case("the text goes in state", req["state"], "Add a CSV export to the reports page")
@@ -120,6 +131,123 @@ def main():
 
     code, out, err = run_main(["--text", "x", "also-a-file.md"])
     case("both a file and --text exits 2", code, 2)
+
+    # --- classify: build_classify_request ---
+    creq = jr.build_classify_request("  What time is it in Auckland?  ")
+    case("classify: the question key is kind", "kind" in creq["questions"], True)
+    case("classify: criteria keys are the kinds", list(creq["questions"]["kind"]["criteria"]), list(jr.KINDS))
+    case("classify: the result keys are exact", set(creq), {"state", "model", "questions"})
+    case("classify: the text is stripped", creq["state"], "What time is it in Auckland?")
+    case("classify: a long prompt is cut to HOOK_MAX_CHARS",
+         len(jr.build_classify_request("x" * (jr.HOOK_MAX_CHARS + 500))["state"]), jr.HOOK_MAX_CHARS)
+    case("classify: empty text raises ValueError", raised(jr.build_classify_request, "  "), ValueError)
+
+    # --- classify: parse_classify_response ---
+    def kind_answer(choice, confidence):
+        return {"answers": {"kind": {"choice": choice, "confidence": confidence,
+                                     "probabilities": {choice: confidence}}}}
+
+    cbuild = jr.parse_classify_response(kind_answer("build", 0.9))
+    case("classify parse: a confident build gives kind build", cbuild["kind"], "build")
+    case("classify parse: and does not ask the user", cbuild["ask_user"], False)
+    ctask = jr.parse_classify_response(kind_answer("task", 0.4))
+    case("classify parse: a low-confidence task asks the user", ctask["ask_user"], True)
+    cunknown = jr.parse_classify_response(kind_answer("made-up-kind", 0.9))
+    case("classify parse: an unknown kind gives None", cunknown["kind"], None)
+    case("classify parse: and asks the user", cunknown["ask_user"], True)
+    case("classify parse: an empty response raises ValueError",
+         raised(jr.parse_classify_response, {}), ValueError)
+
+    # --- classify: hook_context ---
+    case("hook context: a confident build",
+         jr.hook_context({"kind": "build", "confidence": 0.82, "ask_user": False}),
+         "Jev labels this prompt a Build (confidence 0.82). Treat it as a hint; you decide.")
+    case("hook context: an unsure task names its best guess",
+         jr.hook_context({"kind": "task", "confidence": 0.41, "ask_user": True}),
+         "Jev is unsure about this prompt (best guess: Task, confidence 0.41). Classify it yourself.")
+    case("hook context: no usable label",
+         jr.hook_context({"kind": None, "confidence": 0.9, "ask_user": True}),
+         "Jev gave no usable label for this prompt. Classify it yourself.")
+
+    # --- classify: should_send ---
+    case("should_send: empty prompt", jr.should_send("", scan=lambda t: []), (False, "empty"))
+    case("should_send: slash command", jr.should_send("/help", scan=lambda t: []), (False, "slash command"))
+    case("should_send: personal data found",
+         jr.should_send("hello", scan=lambda t: [("email address", 0, 5)]), (False, "personal data"))
+    def scan_broken(t):
+        raise RuntimeError("boom")
+    case("should_send: a broken scan fails closed",
+         jr.should_send("hello", scan=scan_broken), (False, "PII scan unavailable"))
+    case("should_send: clean prompt", jr.should_send("hello", scan=lambda t: []), (True, "ok"))
+    case("should_send: real scan finds an email",
+         jr.should_send("email someone@client-domain.com please"), (False, "personal data"))
+
+    # --- classify: run_hook ---
+    def recording_fake(answer_payload, calls):
+        def fake(payload, key, timeout=30):
+            calls.append(payload)
+            return answer_payload
+        return fake
+
+    clean = lambda t: []
+    calls = []
+    out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
+                      {"TYPESAFE_API_KEY": "test-key"},
+                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean)
+    case("run_hook: the context is in the output", "additionalContext" in out, True)
+    case("run_hook: the label is a Question", "a Question" in out, True)
+    case("run_hook: the request has exactly the three keys",
+         set(calls[0]) if calls else None, {"state", "model", "questions"})
+    case("run_hook: the request state is the prompt",
+         calls[0]["state"] if calls else None, "What time is it in Auckland?")
+
+    calls = []
+    jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?", "session_id": "sess-secret",
+                            "transcript_path": "/x/y"}),
+                {"TYPESAFE_API_KEY": "test-key"},
+                call=recording_fake(kind_answer("question", 0.9), calls), scan=clean)
+    sent_text = json.dumps(calls[0]) if calls else ""
+    case("run_hook: the session id never leaves", "sess-secret" in sent_text, False)
+    case("run_hook: the transcript path never leaves", "/x/y" in sent_text, False)
+
+    calls = []
+    out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}), {},
+                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean)
+    case("run_hook: no key gives no output", out, "")
+    case("run_hook: no key never calls Jev", len(calls), 0)
+
+    calls = []
+    out = jr.run_hook(json.dumps({"prompt": "Email someone@client-domain.com"}),
+                      {"TYPESAFE_API_KEY": "test-key"},
+                      call=recording_fake(kind_answer("question", 0.9), calls),
+                      scan=lambda t: [("email address", 0, 5)])
+    case("run_hook: personal data gives no output", out, "")
+    case("run_hook: personal data never calls Jev", len(calls), 0)
+
+    def fake_refused(payload, key, timeout=30):
+        raise urllib.error.URLError("refused")
+
+    out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
+                      {"TYPESAFE_API_KEY": "test-key"}, call=fake_refused, scan=clean)
+    case("run_hook: a failed call names the error type", "Jev classify failed: URLError" in out, True)
+    case("run_hook: the failure has no key", "test-key" in out, False)
+    case("run_hook: the failure has no prompt text", "What time" in out, False)
+
+    # --- classify: main --hook ---
+    code, out, err = run_hook_main(b"not json")
+    case("main --hook: bad stdin exits 0", code, 0)
+    case("main --hook: bad stdin prints nothing", out, "")
+
+    def fake_question(payload, key, timeout=30):
+        return kind_answer("question", 0.9)
+
+    code, out, err = run_hook_main(b'{"prompt": "What time is it in Auckland?"}',
+                                   env_key="test-key", fake=fake_question)
+    case("main --hook: a valid prompt exits 0", code, 0)
+    case("main --hook: the context is printed", "additionalContext" in out, True)
+
+    code, out, err = run_main(["--hook", "--text", "x"])
+    case("main --hook with --text exits 2", code, 2)
 
     print("\ntest_jev_route: " + str(RAN[0] - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")
     return 1 if FAILS[0] else 0
