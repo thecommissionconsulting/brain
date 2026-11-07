@@ -21,7 +21,7 @@ Companion to [[rules]] (the rule set) and [[index]] (the map itself).
 
 | # | Step | Why it comes first |
 |---|---|---|
-| 1 | **[[index]]** — the master index | Always loaded, every session, via `CLAUDE.md`. §9 names every top-level folder and points at its index note. CI (`scripts/check_maps.py`) **fails** if a folder exists that `legacy-index.md` does not name, so the map cannot silently go stale |
+| 1 | **[[index]]** — the master index | Read only when a question is about vault content; it is not loaded every session. §9 names every top-level folder and points at its index note. CI (`scripts/check_maps.py`) **fails** if a folder exists that `legacy-index.md` does not name, so the map cannot silently go stale |
 | 2 | **The folder index** | [[clients]] · [[knowledge-base]] · [[playbooks]] · [[products]] · [[strategy]] · [[sales]] · [[people]] · [[tool-index]] · this note for `_ai/`. Each lists what is inside and when to reach for it, so you go one level deep without loading the whole vault |
 | 3 | **Grep the content** | The fallback that always works. Every note is keyword-findable — verified across 20 representative questions |
 

@@ -13,7 +13,8 @@ def labels(text, categories=ALL):
 class Detects(unittest.TestCase):
     def test_credentials(self):
         for value, label in [(s.ANTHROPIC, "API token"), (s.GITHUB, "API token"),
-                             (s.AWS, "API token"), (s.JWT, "JWT"),
+                             (s.AWS, "API token"), (s.STRIPE_LIVE, "API token"),
+                             (s.STRIPE_TEST, "API token"), (s.JWT, "JWT"),
                              (s.PRIVATE_KEY, "private key")]:
             with self.subTest(label=label):
                 self.assertEqual(labels(f"use {value} here"), [label])

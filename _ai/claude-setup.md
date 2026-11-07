@@ -70,6 +70,9 @@ If I have to decide something: 2 options max, the context I need to pick fast,
 and which one you'd go with.
 Keep paths and commands exact. I have no brain cells left for the rest.
 Use as little text as possible. Only return what is relevant.
+End every reply with one line that shows how Jev rated my prompt: its label
+and confidence score, for example `Jev: Task, 0.92`. If Jev was unsure, add
+"(unsure)". If Jev gave no rating, write `Jev: no rating`.
 ```
 
 ## Step 3. Add the global rules
