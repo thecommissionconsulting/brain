@@ -9,8 +9,7 @@ Scope, measured rather than assumed. A whole-vault scan on 2026-09-17 found 997
 of 3,483 notes carrying at least one contact address or the phrase "billable
 rate". Denying 29% of the vault would make it useless, and most of those are a
 single client contact named in an engagement note -- ordinary consulting record
-keeping, governed by R-29 (NDA material belongs in the per-client repo) rather
-than by a read gate. Only 2 notes hold bulk personal data at 10+ distinct
+keeping, not a case for a read gate. Only 2 notes hold bulk personal data at 10+ distinct
 external addresses. That is what this blocks, plus the graduate-programme
 `candidates/` subtree, which is job-applicant CVs and evaluations: personal data
 of private individuals who never agreed to be in a consulting vault.

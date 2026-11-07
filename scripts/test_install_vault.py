@@ -77,7 +77,7 @@ def main():
         path = home(tmp)
         ok, detail = iv.apply_gate()
         case("a machine with no settings file needs nothing", ok, True)
-        case("and says the plugin supplies the hook", "central" in detail, True)
+        case("and says there is nothing to do", "nothing to do" in detail, True)
         case("and no settings file is created", (path / "settings.json").exists(), False)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -313,8 +313,8 @@ def main():
              sorted(c["fix"] for c in found), ["override", "override"])
 
 
-    # A machine installed before central still carries the plugins it
-    # absorbed. They are found in either the settings or the CLI's install record.
+    # A machine installed before a plugin was retired still carries it.
+    # It is found in either the settings or the CLI's install record.
     with tempfile.TemporaryDirectory() as tmp:
         path = home(tmp)
         case("a clean machine has no retired plugins", iv.retired_plugins({}), [])
@@ -339,6 +339,11 @@ def main():
         case("claude-mem is removed without installing session-memory",
              iv.RETIRED_PLUGINS.get("claude-mem@skills"), None)
         case("gsd-core is retired", "gsd-core@skills" in iv.RETIRED_PLUGINS, True)
+        case("central and humanizer are retired with no replacement",
+             [iv.RETIRED_PLUGINS.get(p, "absent") for p in ("central@skills", "humanizer@skills")],
+             [None, None])
+        case("neither is installed any more",
+             [n for n, _, _ in iv.PLUGINS if n in ("central", "humanizer")], [])
 
     # The plugin step against a stubbed CLI: what matters is the order of calls.
     class Ran:
@@ -366,16 +371,16 @@ def main():
             case("and the update comes first",
                  ran.calls.index(updates[0]) < first_install, True)
 
-            home(tmp, json.dumps({"enabledPlugins": {"engineering@skills": True}}))
+            home(tmp, json.dumps({"enabledPlugins": {"cache-handoff@skills": True}}))
             iv.run_claude = ran = Ran()
             ok, detail = iv.apply_retired()
             case("a retired plugin is uninstalled", ("plugin", "uninstall",
-                 "engineering@skills") in ran.calls, True)
+                 "cache-handoff@skills") in ran.calls, True)
             case("and its replacement installed", ("plugin", "install",
-                 "central@skills") in ran.calls, True)
+                 "token-weather-usage@skills") in ran.calls, True)
             case("the replacement goes in before the old one comes out",
-                 ran.calls.index(("plugin", "install", "central@skills")) <
-                 ran.calls.index(("plugin", "uninstall", "engineering@skills")), True)
+                 ran.calls.index(("plugin", "install", "token-weather-usage@skills")) <
+                 ran.calls.index(("plugin", "uninstall", "cache-handoff@skills")), True)
 
             class Fails(Ran):
                 def __call__(self, *args):
@@ -400,7 +405,7 @@ def main():
         iv.claude_cli, iv.run_claude = real_cli, real_run
 
     # Auto-update. Third-party marketplaces are off by default, which is how a
-    # machine ends up on the central it first installed.
+    # machine ends up on the plugin versions it first installed.
     case("auto-update is a gap with no entry", iv.auto_update_gaps({}), ["skills"])
     case("and with the switch off", iv.auto_update_gaps(
         {"extraKnownMarketplaces": {"skills": {"autoUpdate": False}}}), ["skills"])
@@ -428,26 +433,8 @@ def main():
         home(tmp, "{not json at all")
         case("malformed settings are refused here too", iv.apply_auto_update()[0], False)
 
-    # Deny rules come from the newest central in the cache, by version, not
-    # by name: 1.10.0 is newer than 1.9.0.
-    with tempfile.TemporaryDirectory() as tmp:
-        path = home(tmp)
-        case("no cache, no script", iv.deny_rules_script(), None)
-        case("no cache is pending, not an error", iv.step_deny_rules()[0], False)
-        for version, names in (("1.9.0", ["old.key"]), ("1.10.0", ["id_rsa"])):
-            sec = path / "plugins" / "cache" / "skills" / "central" / version / "security"
-            sec.mkdir(parents=True)
-            (sec / "install_deny_rules.py").write_text("", encoding="utf-8")
-            (sec / "credential-files.json").write_text(json.dumps(
-                {"names": names, "suffixes": [".pem"], "home_paths": [".aws/credentials"]}),
-                encoding="utf-8")
-        script = iv.deny_rules_script()
-        case("the newest version is chosen", script.parent.parent.name, "1.10.0")
-        case("missing rules are listed", iv.missing_deny_rules(script, {}),
-             ["Read(**/id_rsa)", "Read(**/*.pem)", "Read(~/.aws/credentials)"])
-        have = {"permissions": {"deny": ["Read(**/id_rsa)", "Read(**/*.pem)",
-                                         "Read(~/.aws/credentials)", "Bash(rm:*)"]}}
-        case("present rules are not missing", iv.missing_deny_rules(script, have), [])
+    case("the deny rules step left with central",
+         "deny rules" in [s[0] for s in iv.STEPS], False)
 
     # Hook runtimes. A plugin whose hooks start node fails on every event when
     # node is missing; the step must find it and name the fix, never apply one.
@@ -614,7 +601,7 @@ def main():
         case("a folder marketplace is found without a clone",
              iv.marketplace_location("skills"), folder)
         case("and does not read as missing",
-             [g["marketplace_missing"] for g in iv.plugin_gaps({}) if g["name"] == "central"],
+             [g["marketplace_missing"] for g in iv.plugin_gaps({}) if g["name"] == "flightdeck"],
              [False])
 
     case("flightdeck installs everywhere",
@@ -688,7 +675,7 @@ def main():
 
     case("every forced step exists", all(f in [s[0] for s in iv.STEPS] for f in iv.FORCED), True)
     case("plugins come before what depends on them",
-         [s[0] for s in iv.STEPS].index("plugins") < [s[0] for s in iv.STEPS].index("deny rules"),
+         [s[0] for s in iv.STEPS].index("plugins") < [s[0] for s in iv.STEPS].index("retired plugins"),
          True)
 
     iv.repo_access, iv.remote_head = real_access, real_remote

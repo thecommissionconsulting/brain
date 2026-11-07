@@ -159,14 +159,8 @@ def acceptance():
                str(iv.settings_file()) + " is not valid JSON: " + str(err),
                "fix the JSON by hand; the installer will not overwrite it")
 
-    r = py("test_prompt_gate.py")
-    out = r.stdout + r.stderr
-    if "not installed" in out:
-        record("8a", "prompt gate tests", "FAIL", "central is not installed",
-               "python scripts/install_vault.py --yes")
-    else:
-        record("8a", "prompt gate tests", "PASS" if r.returncode == 0 else "FAIL",
-               last_line(r), "read the FAIL lines from python scripts/test_prompt_gate.py")
+    # 8a, the prompt gate tests, left with central on 2026-11-07: no prompt gate
+    # ships any more. The PreToolUse PII gate is still tested in the suite below.
 
 
     guard_refuses_main()
@@ -220,10 +214,10 @@ def suites():
 
 # ---- what only a person can check --------------------------------------------
 MANUAL = (
-    ("7b", "In Claude Code, ask it to use `central:safe-refactor`. It resolves, "
-           "and no bare `safe-refactor` competes with it."),
-    ("11", "Start a new Claude Code session in this folder. The gate line prints, and a "
-           "prompt containing `test.person@example.com` is blocked before it reaches the model."),
+    ("7b", "In Claude Code, ask it to use `superpowers:systematic-debugging`. It resolves, "
+           "and no bare `systematic-debugging` competes with it."),
+    ("11", "Start a new Claude Code session in this folder. The SessionStart gate line "
+           "prints."),
     ("13", "Ask Claude to write any file to `raw/output/`, then end the turn. The triage "
            "review opens once."),
     ("14", "End a second turn without triaging. The gate stays silent."),

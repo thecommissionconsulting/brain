@@ -6,11 +6,10 @@ un-synced project `CLAUDE.md`.
 
 ## Quick start
 
-**If you already have this folder**, open it in Claude Code and say "install the vault". The
-`install-vault` skill runs `scripts/install_vault.py`, which binds the things a clone
-cannot carry (git guards, the Claude Code plugins with auto-update on, the answer-only
-prompt gate, central's credential deny rules), clears what an older install left
-behind, writes the `_local/` binding files from what the machine already knows, and then
+**If you already have this folder**, open it in Claude Code and say "install the vault".
+Claude follows [[update]], which runs `scripts/install_vault.py`. That binds the things a
+clone cannot carry (git guards, the Claude Code plugins with auto-update on), clears what
+an older install left behind, including the retired `central` and `humanizer` plugins, writes the `_local/` binding files from what the machine already knows, and then
 walks you through what a script must not decide: your git identity, Obsidian, credentials,
 and whether to build the index. Without Claude:
 
@@ -36,9 +35,9 @@ reported rather than removed.
 
 Three things are cleared without `--force`, because each is the vault's own leftover.
 A `skills` clone from an earlier install is updated before anything is installed
-from it. An old clone does not list central, and when the CLI's own refresh fails
-it installs from that old clone and reports central as "not found", hiding the
-real cause (usually no access to the private repo). A retired plugin (`engineering`, `claude-mem`, `cache-handoff`, `gsd-core`) is
+from it. An old clone can miss a newer plugin, and when the CLI's own refresh fails
+it installs from that old clone and reports the plugin as "not found", hiding the
+real cause (usually no access to the private repo). A retired plugin (`engineering`, `claude-mem`, `cache-handoff`, `gsd-core`, `central`, `humanizer`) is
 uninstalled and its replacement installed where it has one, so the same skills do not load twice. A stale prompt-gate
 hook in the global settings is removed.
 
@@ -54,11 +53,10 @@ program Claude Code does not ship. When that program is missing, every prompt an
 call shows an error such as `node: command not found`. The session keeps working, but
 the hook does nothing.
 
-- **Python 3, as `python`.** central's prompt gate, credential gate and output
-  redaction, and this vault's own hooks, all call `python` by that name. A machine with
-  only `python3`, or where `python` is the Microsoft Store alias that opens the Store,
-  fails every one of them, and the PII and credential protection stops without saying
-  so. Install it with `winget install --id Python.Python.3.13 -e --scope user` on
+- **Python 3, as `python`.** This vault's own hooks, the PII gate among them, call
+  `python` by that name. A machine with only `python3`, or where `python` is the
+  Microsoft Store alias that opens the Store, fails every one of them, and the PII
+  protection stops without saying so. Install it with `winget install --id Python.Python.3.13 -e --scope user` on
   Windows; on macOS put an unversioned `python` in your own bin folder, for example
   `mkdir -p ~/.local/bin && ln -s "$(command -v python3)" ~/.local/bin/python`, with
   `~/.local/bin` on PATH.
@@ -125,8 +123,6 @@ to drift. `install_vault.py` does this for you, or by hand:
 
 ```bash
 claude plugin marketplace add ../../skills/skills-main
-claude plugin install central@skills
-claude plugin install humanizer@skills
 claude plugin install token-weather-usage@skills
 claude plugin install flightdeck@skills
 claude plugin install next-steps@skills
@@ -134,15 +130,10 @@ claude plugin install superpowers@claude-plugins-official
 claude plugin list                                        # what is installed and enabled
 ```
 
-`central` is the company's own, and holds everything written in-house: the `caveman`
-compression suite, `answer-only`, `markdown-converter`, the four method skills
-(`lean-build`, `migration`, `safe-refactor`, `surgical-patch`) and the two that only
-mean anything here, `install-vault` and `vault-rag`. Call them by their plugin name,
-`central:caveman` and so on.
-
-`humanizer` is third-party (blader, MIT), referenced by the `skills` marketplace
-and pinned to a reviewed commit, so an update is a deliberate bump rather than
-whatever upstream pushed last night.
+`central` (the company's in-house skills, the `answer-only` prompt gate and the
+credential deny rules) and `humanizer` were retired on 2026-11-07. The installer
+uninstalls both where it finds them. Their skills, including `vault-rag` and
+`install-vault`, are no longer available.
 
 `token-weather-usage` is this copy of Eric Cologni's plugin (Apache-2.0), kept in
 `skills` with local changes. It draws one band above the prompt: the 5-hour and
@@ -173,19 +164,17 @@ usually needs no `marketplace add` of its own. It also replaced two vault skills
 `verification-before-completion` does what `verify-and-stop` did, and
 `systematic-debugging` what `investigate-first` did.
 
-The `answer-only` gate needs no extra step any more. `central` ships its own
-`UserPromptSubmit` hook using `${CLAUDE_PLUGIN_ROOT}`, so installing the plugin
-registers the PII gate and the reply contract, and a version bump cannot break the
-path. If you still have a hook in `~/.claude/settings.json` pointing at
-`~/.claude/skills/answer-only/prompt_gate.py` from the old layout, remove it: the gate
-would otherwise run twice on every prompt.
+No prompt gate ships any more: the `answer-only` `UserPromptSubmit` hook left with
+`central`. Prompts are no longer checked for personal data before they reach the model.
+The vault's own `pii_gate.py` still checks file and shell tool calls. If you still have a
+hook in `~/.claude/settings.json` pointing at `~/.claude/skills/answer-only/prompt_gate.py`
+from the old layout, the installer removes it.
 
-Two settings go into `~/.claude/settings.json` with the plugins. `autoUpdate: true` on
-the `skills` entry under `extraKnownMarketplaces`, because a third-party
-marketplace does not update on its own, and without it a machine keeps the
-central it first installed. And central's credential-file `Read` deny rules,
-which a plugin cannot ship: the installer runs `security/install_deny_rules.py` from the
-newest central in the plugin cache.
+One setting goes into `~/.claude/settings.json` with the plugins: `autoUpdate: true` on
+the `skills` entry under `extraKnownMarketplaces`, because a third-party marketplace does
+not update on its own, and without it a machine keeps the plugin versions it first
+installed. The credential-file `Read` deny rules came from `central` and are no longer
+added on a new machine; rules an earlier install wrote stay in place.
 
 This vault's own `.claude/settings.json` enables the same plugins. It does not declare
 the `skills` marketplace, because that is a folder whose path differs per machine (R-31);
@@ -310,7 +299,7 @@ and never syncs to another machine. Each machine builds its own.
 
 Three Claude Code hooks are configured in `.claude/settings.json`, which is committed, so
 they apply to every clone without further setup. A fourth, the `answer-only`
-`UserPromptSubmit` gate, ships with the `central` plugin.
+`UserPromptSubmit` gate, left with the retired `central` plugin on 2026-11-07.
 
 `SessionStart` runs `scripts/session_gate.py`: the two sub-second gates plus the `index.md`
 byte budget, so a session opens knowing which rules in [[rules]] are currently red. It
