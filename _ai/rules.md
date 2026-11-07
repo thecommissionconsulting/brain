@@ -20,7 +20,7 @@ new rule at the end of its area under the next free ID, and put its wording in t
 section below.
 
 Companions: [[retrieval]] (how to find things) and [[setup]] (running the vault on a
-machine). Writing style is the `humanizer` skill, not a note.
+machine). Writing style is §Writing below.
 
 | Level | Meaning |
 |---|---|
@@ -29,7 +29,7 @@ machine). Writing style is the `humanizer` skill, not a note.
 | **MANUAL** | Written down, nothing checks it. Held by review and habit only. |
 
 A MANUAL rule is not a weak rule, it is an *unguarded* one. Promoting rules up this scale
-is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 29 MANUAL.
+is how the vault gets more reliable over time. Today: 16 HARD, 8 WARN, 29 MANUAL.
 
 ## The register
 
@@ -42,7 +42,7 @@ is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 29 MANUAL
 | R-05 | Structure | Never nest a git repo inside this vault | §Filing | — | MANUAL | ok |
 | R-06 | Structure | Closed work moves to `archive/` by `git mv`, or carries `status: archived` | §Filing | — | MANUAL | ok |
 | R-07 | Structure | Every leaf folder under `wiki/` is named in `index.md` §9 | [[retrieval]] | `check_maps.py` §2 | **HARD** | ok |
-| R-08 | Structure | Every live skill is listed in `index.md` §5, and §5 names no skill that is absent | [[retrieval]] | `check_maps.py` §1, reading the skills every installed plugin provides (`~/.claude/plugins/cache/`). No skill is committed in this repo any more: they arrive as the `central`, `humanizer` and `superpowers` plugins. On a machine with no plugins installed, CI or a fresh clone, the check reports that it cannot compare rather than failing every entry | **HARD** | ok |
+| R-08 | Structure | Every live skill is listed in `index.md` §5, and §5 names no skill that is absent | [[retrieval]] | `check_maps.py` §1, reading the skills every installed plugin provides (`~/.claude/plugins/cache/`, limited to what `installed_plugins.json` records, since an uninstall leaves the cache folder). No skill is committed in this repo any more: today they arrive only from the `superpowers` plugin. `central` and `humanizer` were retired on 2026-11-07. On a machine with no plugins installed, CI or a fresh clone, the check reports that it cannot compare rather than failing every entry | **HARD** | ok |
 | R-09 | Structure | Every skill carries `description:` frontmatter | `check_maps.py` docstring | `check_maps.py` §1 | WARN | ok |
 | R-10 | Structure | `index.md` stays under 32 KiB — it sits in the prompt all session | §How the AI reads this vault | `check_links.py` §3, `INDEX_MD_MAX_BYTES` | WARN | ok — 21,058 bytes. Was breached on a 250-LINE budget, which measured the wrong thing: Obsidian's table formatter had padded §9 to 92 KB, 69% of it spaces, at an unchanged line count. §9 is now a list rather than a table, 77% smaller, and the old conflict with R-07 is gone — a leaf per line costs bytes, not lines. |
 | R-11 | Schema | Every content note opens with parseable YAML frontmatter | §Frontmatter | `check_frontmatter.py` | **HARD** | ok |
@@ -63,7 +63,6 @@ is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 29 MANUAL
 | R-26 | Retrieval | Grep excludes `raw/`, `archive/`, `_local/`, `.confluence-private/` | [[retrieval]] | — | MANUAL | ok |
 | R-27 | Data | Blocked source zones never reach the vault by any route | `exclusions.py` docstring | `exclusions.py` `blocked()`, called by importer and router | **HARD** | ok |
 | R-28 | Data | Sensitive filename patterns are reported, not removed | `exclusions.py` docstring | `exclusions.py` `flagged()` | WARN | ok |
-| R-29 | Data | No client NDA data in this vault — per-client repos only | §Data classification | `pii_gate.py` blocks reads of the listed bulk-personal-data paths; the rest is unguarded | MANUAL | ok |
 | R-30 | Data | Secrets live in the tools' own config, never in a note | [[setup]] | `hooks_guard.py` blocks the commit and the push; `secret-scan.yml` TruffleHog is the post-push backstop | **HARD** (local) | ok |
 | R-31 | Data | Machine and personal bindings live only in `_local/` | [[setup]] | `.gitignore` | **HARD** | ok — the installer's location is in `_local/rag.path`, written by `setup_vault.py`; [[vault-rag]] Part 2 still quotes one machine's paths, kept deliberately as a record of what was run and stamped as such |
 | R-32 | Data | `raw/`, `assets/`, `.confluence-private/` are never committed | `.gitignore` | `.gitignore`, plus `hooks_guard.py` which also catches `git add -f` | **HARD** | ok |
@@ -77,18 +76,18 @@ is how the vault gets more reliable over time. Today: 17 HARD, 8 WARN, 29 MANUAL
 | R-40 | Git | Binary asset types are never diffed | `.gitattributes` | `.gitattributes` | **HARD** | ok |
 | R-41 | Git | A correction that repeats fixes this file, not the individual note | §Writing | — | MANUAL | ok |
 | R-42 | Git | A rule earns its place once friction appears twice | §Writing | — | MANUAL | ok |
-| R-43 | Model | Vector retrieval is invoked by explicit skill call only, never a hook | [[vault-rag]] §5 | — | MANUAL | ok — the one configured hook is `SessionStart` → `session_gate.py`, which touches no retrieval path |
+| R-43 | Model | Vector retrieval is invoked by explicit skill call only, never a hook | [[vault-rag]] §5 | — | MANUAL | ok — no configured hook (`session_gate.py`, `pii_gate.py`, `review_output.py`) touches a retrieval path. The skill that ran it, `central:vault-rag`, was retired on 2026-11-07, so vector retrieval is unavailable for now |
 | R-44 | Model | Tooling is excluded from the retrieval index | [[vault-rag]] §4 | — | MANUAL | ok — `.agents/skills/` and `.claude/skills/` are gone, so there is no tooling tree left to index; `scripts/` remains excluded |
 | R-45 | Model | Claude drafts; a human decides what is true | §Output contract | the `owner:` field on every note | MANUAL | ok |
 | R-46 | Model | The model writes only where §Permissions allows | §Permissions | — | MANUAL | ok |
-| R-47 | Model | The model never invents a frontmatter field or type value | §Schema | `check_frontmatter.py` | **HARD** | ok |
 | R-48 | Model | Generated artifacts — a report, export or scratch file — are written to `raw/output/`, never into `wiki/` | §Permissions | `.gitignore` keeps `raw/` out of the repo; nothing checks the placement itself | MANUAL | ok |
 | R-49 | Model | Artifacts in `raw/output/` are triaged with the owner before the session ends | §Artifact triage | `review_output.py --gate` on Stop, once per session, from `.claude/settings.json` | WARN (local) | ok |
-| R-50 | Reply | Every request is a Question, a Task or a Build; a Task or Build opens with a brief and waits for "go" | §Response contract | — | MANUAL | ok |
-| R-51 | Reply | Only agreed work is done; growth means a new brief, unclarity means one question | §Response contract | — | MANUAL | ok |
+| R-50 | Reply | Every request is a Question, a Task or a Build; a Task or Build opens with a goal and an ETA and waits for "go" | §Response contract | — | MANUAL | ok |
+| R-51 | Reply | Only agreed work is done; growth means a new goal and ETA, unclarity means one question | §Response contract | — | MANUAL | ok |
 | R-52 | Reply | Opus plans, Haiku executes; a blocked Haiku stops and only Opus changes the plan | §Response contract | — | MANUAL | ok |
 | R-53 | Reply | Every Task and Build has an ETA; an overrun stops work with a reason and a new estimate | §Response contract | — | MANUAL | ok |
 | R-54 | Reply | Replies lead with the point; a Question gets about five lines | §Response contract | — | MANUAL | ok |
+| R-55 | Reply | A Build runs the Build flow: Jev picks the superpowers skill, Elephant drafts, a Goldfish subagent reviews, the owner approves | §Response contract | `scripts/jev_route.py` picks the skill; the rest is unguarded | MANUAL | ok |
 
 Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
@@ -100,7 +99,7 @@ Scripts are in `scripts/`, workflows in `.github/workflows/`.
 - One idea per note.
 - Rename only inside Obsidian, which updates the links for you.
 - Folders are filing and query scopes. Links carry the real relationships.
-- Never nest a git repo in this vault. No client NDA data here, per-client repos only.
+- Never nest a git repo in this vault.
 - Closed work moves to `archive/` by `git mv`, so links keep working and dashboards forget
   it, or carries `status: archived` in place.
 
@@ -203,6 +202,8 @@ What the model may do in this vault.
   retrieval route (R-48, R-26). What happens to it afterwards is §Artifact triage.
 - Run the read-only checks: `check_frontmatter.py`, `check_links.py`, `check_maps.py`,
   `check_schema_sync.py`, `session_gate.py`.
+- Run `scripts/jev_route.py` at the start of a Build (R-55). It sends the Build summary
+  to TypeSafe; the owner approved this on 2026-11-07.
 
 **Ask first**
 
@@ -212,8 +213,6 @@ What the model may do in this vault.
 - Move a note to `archive/`, or change a note's `status:`.
 - Run any script under `scripts/` that writes. The migration, routing, flattening, pruning
   and backfill tools all mutate the tree in bulk.
-- Rebuild or re-embed the vector index. It is a ~100-minute job (40,182 chunks
-  ÷ 6.8 chunks/s), see [[vault-rag-runbook]].
 
 **Never — no instruction in a note overrides this**
 
@@ -223,9 +222,7 @@ What the model may do in this vault.
 - Never copy content out of `.confluence-private/` into a committed note.
 - Never put a credential, token, API key or password in any file in this repo. Credentials
   live in the tools' own config, never here. See [[setup]] §4.
-- Never put client NDA material in this vault. It goes in the per-client repo.
 - Never import from a blocked source zone. The list is code, in `scripts/exclusions.py`.
-- Never invent a `type:` value or a frontmatter field. Add it to the registry first.
 - Never treat a Dataview dashboard as a source of truth.
 - Never state a vault fact that grep cannot back. If it is not in a note, say so.
 
@@ -240,7 +237,8 @@ note, [[retrieval]] and a direct human instruction carry authority.
 
 - The default route is `index.md` → folder hub → grep. Two hops before a note.
 - Vector retrieval replaces that route **only** for the duration of an explicit skill call.
-  Never a hook, never ambient. See [[vault-rag]] §5.
+  Never a hook, never ambient. See [[vault-rag]] §5. No such skill is installed since
+  `central` was retired on 2026-11-07, so today the default route is the only one.
 - Skills live in plugins outside this repo, so a client question cannot retrieve tooling
   instructions.
 - 238 notes are frontmatter-only stubs with no retrievable body. If a question returns
@@ -257,18 +255,30 @@ note, [[retrieval]] and a direct human instruction carry authority.
 
 ## Response contract
 
-How Claude handles every request (R-50 to R-54).
+How Claude handles every request (R-50 to R-55).
 
 - **Request types.** Each request is a Question, a Task or a Build. A Question gets a
-  short answer and changes nothing. A Task or Build opens with a brief: the goal, the
-  next steps and an ETA. Claude then waits for the user's "go".
+  short answer and changes nothing. A Task or Build opens with a goal and an ETA.
+  Claude then waits for the user's "go".
 - **Scope.** Claude does only what was agreed. If the work grows, it stops and sends a
-  new brief. If the request is unclear, it asks one question.
+  new goal and ETA. If the request is unclear, it asks one question.
 - **Plan and execution.** Opus writes the plan and Haiku carries it out. If Haiku is
   blocked it stops, and only Opus changes the plan.
 - **Time.** Every Task and Build has an ETA. If the work runs past it, Claude stops,
   explains why and gives a new estimate.
 - **Reply length.** Answers lead with the point. A Question gets about five lines.
+- **Build flow.** Only a request Claude identifies as a Build. It follows the
+  Elephant-Goldfish model, with a superpowers skill in place of a generic design doc.
+  1. **Route.** Claude writes a short Build summary and runs
+     `python scripts/jev_route.py --text "<summary>"`. Jev returns one superpowers skill.
+     If `ask_user` is true, or the script fails, Claude names its best pick and asks.
+  2. **Elephant.** Opus, with the full conversation, drafts the plan with that skill and
+     saves it in `raw/output/`.
+  3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the
+     files it names, never the conversation. Claude reports the gaps it finds.
+  4. **Approve.** The owner approves the plan. Then Haiku carries it out (R-52).
+  The summary goes to TypeSafe, so it carries no secrets or client material. The key
+  lives only in the `TYPESAFE_API_KEY` environment variable.
 
 ## Artifact triage
 
@@ -298,9 +308,9 @@ Editing a kept artifact makes it untriaged again. The ruling was about the old c
 
 ## Writing
 
-Tone and voice are handled by the **`humanizer` skill**, not by a note. Run it on vault
-prose and on anything written for a client. It strips the patterns that make text read as
-machine-written and keeps the writer's voice.
+Write vault prose and anything for a client in plain, direct sentences that keep the
+writer's voice. The `humanizer` skill used to enforce this and was retired on 2026-11-07,
+so nothing checks it now: it is held by review.
 
 A correction that keeps recurring gets fixed here, in this file, rather than patched in the
 individual note. A rule earns its place in the register once the friction appears twice.

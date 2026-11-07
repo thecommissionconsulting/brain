@@ -16,10 +16,10 @@ Instructions for Claude, in order. Installing and updating are the same procedur
 set up months ago take the same path. The script makes the decisions. This note only
 sets the order and says where to stop and ask.
 
-This note lives in the vault rather than in a skill on purpose. The `install-vault`
-skill ships in the central plugin, which is exactly what is missing or out of date
-on an old workstation. This note arrives with `git pull`, so it always matches the
-installer in the same commit.
+This note lives in the vault rather than in a skill on purpose. A skill ships in a
+plugin, which is exactly what is missing or out of date on an old workstation, and the
+`install-vault` skill left with the retired `central` plugin on 2026-11-07. This note
+arrives with `git pull`, so it always matches the installer in the same commit.
 
 ## 1. Ask once, up front
 
@@ -111,9 +111,8 @@ or `bun`, and that program does not run on this machine. Every prompt and tool c
 shows an error such as `node: command not found`. The installer never fixes this itself.
 Say which program and which plugin or hook needs it, then:
 
-- For `python`, there is no choice to offer. central's prompt gate, credential gate
-  and output redaction, and this vault's own hooks, all call it, and without it they do
-  nothing. Ask to install Python 3 with the command the plan prints
+- For `python`, there is no choice to offer. This vault's own hooks, the PII gate among
+  them, call it, and without it they do nothing. Ask to install Python 3 with the command the plan prints
   (on Windows, `winget install --id Python.Python.3.13 -e --scope user`). If `python` opens the Microsoft
   Store, the person turns off its App execution alias in Settings > Apps > Advanced app
   settings; you cannot do that for them.

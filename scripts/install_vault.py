@@ -6,25 +6,25 @@ repository:
 
   git guards        .git/hooks/ is never cloned, and core.hooksPath is per-clone
                     config, so a fresh clone can push to main until this runs
-  plugins           every skill lives in a plugin now: central, humanizer,
-                    token-weather-usage and superpowers, from two marketplace repos
-                    cloned into ~/.claude/plugins/ by the claude CLI and
-                    enabled in your GLOBAL settings. This vault carries none
-  the prompt gate   central ships the answer-only UserPromptSubmit hook
-                    itself, so installing the plugin registers it. A hook left
-                    in your GLOBAL settings by the old layout runs it twice
+  plugins           every skill lives in a plugin now: superpowers,
+                    token-weather-usage, flightdeck and next-steps, from two
+                    marketplace repos cloned into ~/.claude/plugins/ by the
+                    claude CLI and enabled in your GLOBAL settings. This vault
+                    carries none
+  the prompt gate   central, which shipped the answer-only UserPromptSubmit
+                    hook, is retired. A copy of that hook left in your GLOBAL
+                    settings by an older layout is removed
   old layout        a machine installed before the plugins carries leftovers
                     that shadow them: skill copies in ~/.claude/skills/ and
-                    retired plugins such as engineering. Both are cleared
-  auto-update       skills is set to update on startup, so a new
-                    central reaches this machine without a manual step
+                    retired plugins such as engineering, central and humanizer.
+                    Both are cleared
+  auto-update       skills is set to update on startup, so a new plugin
+                    version reaches this machine without a manual step
   plugin updates    each run also pulls skills when GitHub is ahead and
                     updates every installed plugin it has a newer version of
-  deny rules        central's credential-file Read deny rules, which a
-                    plugin cannot ship, go into your GLOBAL settings
   hook runtimes     a hook that starts python, node or bun fails on every event
-                    when that program is missing, and without python the PII and
-                    credential gates do nothing. Reported, never fixed here:
+                    when that program is missing, and without python the vault's
+                    PII gate does nothing. Reported, never fixed here:
                     installing it or removing the plugin is a person's call. uv,
                     PyYAML and tzdata are reported too, without failing --check
 
@@ -82,8 +82,6 @@ SKILLS_DIR = pathlib.Path(os.environ.get("VAULT_SKILLS_DIR")
 SKILLS_SOURCE = str(SKILLS_DIR)
 
 PLUGINS = (
-    ("central", "skills", SKILLS_SOURCE),
-    ("humanizer", "skills", SKILLS_SOURCE),
     ("token-weather-usage", "skills", SKILLS_SOURCE),
     ("flightdeck", "skills", SKILLS_SOURCE),
     ("next-steps", "skills", SKILLS_SOURCE),
@@ -98,12 +96,15 @@ PLUGINS = (
 # Node.js, auto-installs Bun, uv and Chroma, and sends transcripts to an LLM
 # provider. So claude-mem is removed and its successor is only named, never
 # installed. gsd-core left the marketplace with no replacement, and its hooks run
-# node on every tool call.
+# node on every tool call. central and humanizer were dropped from the vault's
+# plugin set on 2026-11-07 by the owner's decision, with no replacement.
 RETIRED_PLUGINS = {
-    "engineering@skills": "central@skills",
+    "engineering@skills": None,
     "claude-mem@skills": None,
     "cache-handoff@skills": "token-weather-usage@skills",
     "gsd-core@skills": None,
+    "central@skills": None,
+    "humanizer@skills": None,
 }
 
 # What to tell a person about a retired plugin that has no automatic replacement.
@@ -116,9 +117,9 @@ RETIRED_NOTES = {
 # command starts one of these fails on every event when it is missing, with
 # "node: command not found", and the session carries on with an error on screen.
 #
-# python is the one that matters most: central's prompt gate, credential gate
-# and output redaction, and this vault's own hooks, all call `python` by that name.
-# Without it they fail open, so the PII and credential protection silently stops.
+# python is the one that matters most: this vault's own hooks, the PII gate among
+# them, call `python` by that name. Without it they fail open, so the PII
+# protection silently stops.
 # A machine with only `python3`, or with the Microsoft Store's `python` alias that
 # opens the Store instead of running anything, counts as missing.
 HOOK_RUNTIMES = {"node": "node", "npx": "node", "bun": "bun", "bunx": "bun",
@@ -392,9 +393,9 @@ def gate_registered(settings):
 def drop_gate_hooks(settings):
     """Remove the gate's UserPromptSubmit entry, leaving every other hook alone.
 
-    central registers the gate itself through ${CLAUDE_PLUGIN_ROOT}. A copy
-    here from the old layout points at ~/.claude/skills/, which may not exist and,
-    when it does, runs the same gate a second time on every prompt.
+    The gate shipped with central, which is retired. A copy here from the old
+    layout points at ~/.claude/skills/, which may not exist, so it fails or runs
+    a gate the vault no longer maintains.
     """
     out = dict(settings)
     hooks = dict(out.get("hooks", {}))
@@ -741,13 +742,13 @@ def tail(result):
 
 
 def step_gate():
-    """The gate now ships with central, so this step only has to make sure
-    nothing competes with it.
+    """No prompt gate ships any more: central, which carried it, is retired.
+    This step only clears what an older layout left behind.
 
     Two ways it can be wrong. A hook left in the global settings by the layout that
-    copied the skill out of this repo runs the gate a second time on every prompt,
-    and `disableAllHooks` stops the plugin's own hook firing at all, which loses
-    the PII check silently.
+    copied the skill out of this repo still points at a gate nobody maintains, and
+    `disableAllHooks` stops this vault's own hooks firing at all, which loses the
+    PII check silently.
     """
     path = settings_file()
     try:
@@ -758,11 +759,10 @@ def step_gate():
     stale = gate_registered(settings)
     disabled = bool(settings.get("disableAllHooks"))
     if not stale and not disabled:
-        return True, ("central supplies the hook; nothing competes with it",
-                      "nothing to do")
+        return True, ("no stale gate hook, hooks are on", "nothing to do")
     state = "a stale gate hook is registered here" if stale else "hooks are switched off globally"
     return False, (str(path) + ": " + state,
-                   "remove the stale hook and let central's own hook run")
+                   "remove the stale hook and turn hooks back on")
 
 
 def apply_gate():
@@ -772,7 +772,7 @@ def apply_gate():
     except ValueError as err:
         return False, str(path) + " is not valid JSON (" + str(err) + "). Left untouched."
     if not gate_registered(settings) and not settings.get("disableAllHooks"):
-        return True, "central supplies the hook; nothing to do"
+        return True, "no stale gate hook; nothing to do"
     backup = ""
     if path.exists():
         backup = str(path) + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
@@ -789,7 +789,7 @@ def auto_update_gaps(settings):
     """The marketplaces in AUTO_UPDATE whose settings entry does not turn it on.
 
     Third-party marketplaces are off by default, so without this a machine keeps
-    the central it first installed until someone runs `marketplace update`.
+    the plugin versions it first installed until someone runs `marketplace update`.
     """
     known = settings.get("extraKnownMarketplaces") or {}
     return [m for m in AUTO_UPDATE if (known.get(m) or {}).get("autoUpdate") is not True]
@@ -946,57 +946,6 @@ def apply_auto_update():
     path.write_text(json.dumps(with_auto_update(settings), indent=2) + "\n",
                     encoding="utf-8", newline="\n")
     return True, ("on for " + ", ".join(gaps) + (", backup at " + backup if backup else ""))
-
-
-def version_key(path):
-    """Sort key for a plugin cache folder name such as 1.10.0, numeric where it can be."""
-    return tuple(int(p) if p.isdigit() else -1 for p in path.name.split("."))
-
-
-def deny_rules_script():
-    """install_deny_rules.py from the newest central in the plugin cache, or None."""
-    cache = claude_home() / "plugins" / "cache" / "skills" / "central"
-    if not cache.is_dir():
-        return None
-    for version in sorted((d for d in cache.iterdir() if d.is_dir()), key=version_key,
-                          reverse=True):
-        script = version / "security" / "install_deny_rules.py"
-        if script.exists():
-            return script
-    return None
-
-
-def missing_deny_rules(script, settings):
-    """The rules the script would add, read from its own data file, not guessed here."""
-    data = json.loads((script.parent / "credential-files.json").read_text(encoding="utf-8"))
-    wanted = (["Read(**/" + n + ")" for n in data["names"]]
-              + ["Read(**/*" + s + ")" for s in data["suffixes"]]
-              + ["Read(~/" + p + ")" for p in data["home_paths"]])
-    have = set((settings.get("permissions") or {}).get("deny") or [])
-    return [r for r in wanted if r not in have]
-
-
-def step_deny_rules():
-    script = deny_rules_script()
-    if not script:
-        return False, ("central is not in the plugin cache yet",
-                       "add central's credential deny rules once the plugin is installed")
-    try:
-        missing = missing_deny_rules(script, read_settings(settings_file()))
-    except (OSError, ValueError, KeyError) as err:
-        return False, ("could not read the rules or the settings (" + str(err) + ")",
-                       "REPORT IT, and change nothing")
-    return not missing, (str(len(missing)) + " rule(s) missing" if missing else "present",
-                         "add central's credential-file Read deny rules to the "
-                         "global settings")
-
-
-def apply_deny_rules():
-    script = deny_rules_script()
-    if not script:
-        return False, "central is not in the plugin cache; install it, then re-run"
-    r = run(sys.executable, str(script), "--settings", str(settings_file()))
-    return r.returncode == 0, tail(r)
 
 
 def active_plugin_roots(settings):
@@ -1181,9 +1130,12 @@ def apply_bindings():
     return True, detail + ("; still blank: " + ", ".join(blank) if blank else "")
 
 
-# Order matters: plugins before the retired ones are removed, so central is
-# already there when engineering goes, and before the deny rules, which are
-# read out of central's own install.
+# Order matters: plugins before the retired ones are removed, so a replacement
+# is already there when the plugin it replaces goes.
+#
+# There was a "deny rules" step that copied central's credential-file Read deny
+# rules into the global settings. It left with central. Rules it already wrote
+# stay in the global settings; nothing adds them on a new machine any more.
 STEPS = (
     ("git guards", step_hooks, apply_hooks),
     ("plugins", step_plugins, apply_plugins),
@@ -1192,7 +1144,6 @@ STEPS = (
     ("skill copies", step_skills, apply_skills),
     ("auto-update", step_auto_update, apply_auto_update),
     ("prompt gate", step_gate, apply_gate),
-    ("deny rules", step_deny_rules, apply_deny_rules),
     ("hook runtimes", step_runtimes, apply_runtimes),
 )
 # Not a step for now: ("local bindings", step_bindings, apply_bindings). The binding
@@ -1205,7 +1156,7 @@ FORCED = ("skill copies",)
 # The steps after which Claude Code must restart to load what changed.
 NEEDS_RESTART = ("plugins", "retired plugins", "plugin updates", "skill copies",
                  "auto-update",
-                 "prompt gate", "deny rules")
+                 "prompt gate")
 
 
 def manual():

@@ -3,7 +3,6 @@ type: playbook
 status: draft
 owner: Daru Broodryk
 created: 2026-09-23
-skill: install-vault
 tags: [playbook]
 ---
 
@@ -14,16 +13,17 @@ tags: [playbook]
 > cases are automated, which are manual, and what is not covered at all?
 
 **When to use:** before trusting a new workstation, after changing
-`scripts/install_vault.py` or the `install-vault` skill, or when deciding what to
-automate next.
+`scripts/install_vault.py` or [[update]], or when deciding what to automate next.
 **Prerequisites:** a machine with git, Python 3.x, Claude Code and a clone of this
 repository. A machine with none of those starts at `scripts/setup_vault.py`.
 
 Companion to [[setup]], which is the prose. This is the proof.
 
-Covers the one-command install path: `scripts/install_vault.py`, the
-`install-vault` skill, and the hooks and guards they bind. Written 2026-09-23,
-against the work on `internal/index-context-budget`.
+Covers the one-command install path: `scripts/install_vault.py`, [[update]], and
+the hooks and guards they bind. Written 2026-09-23, against the work on
+`internal/index-context-budget`. Updated 2026-11-07, when the `central` and
+`humanizer` plugins were retired and the `install-vault` skill, the prompt gate and
+the deny-rules step went with them.
 
 ## 1. What the person does
 
@@ -48,15 +48,15 @@ building the vector index.
 
 ## 2. What happens behind it
 
-The `install-vault` skill runs `python scripts/install_vault.py --yes`. Every
+Claude, following [[update]], runs `python scripts/install_vault.py --yes`. Every
 apply run ends with `scripts/verify_install.py`, which runs this plan (§4) and
 writes the report described there. Four steps, each idempotent:
 
 | Step | Binds | Why a clone cannot carry it |
 |---|---|---|
 | git guards | `core.hooksPath=.githooks` | `.git/hooks/` is never cloned and `core.hooksPath` is per-clone config |
-| plugins | the `skills` marketplace cloned, then `central`, `humanizer` and `superpowers` enabled | a marketplace is a separate repository, and `enabledPlugins` is global configuration |
-| prompt gate | no stale `UserPromptSubmit` hook in `~/.claude/settings.json` | `central` ships the gate itself; a hook left by the old layout runs it a second time |
+| plugins | the `skills` marketplace cloned, then `token-weather-usage`, `flightdeck`, `next-steps` and `superpowers` enabled | a marketplace is a separate repository, and `enabledPlugins` is global configuration |
+| prompt gate | no stale `UserPromptSubmit` hook in `~/.claude/settings.json` | no prompt gate ships since `central` was retired; a hook left by the old layout points at a gate nobody maintains |
 | local bindings | `_local/cli-bindings.md` and `_local/workspace-bindings.md` | `_local/` is gitignored in full |
 
 The binding files are written from `--detect`, which reads the workspace and
@@ -66,8 +66,7 @@ Only undetectable fields are asked about, then filled with `--bindings key=value
 
 Once installed, these run without further action. From the committed
 `.claude/settings.json`: `session_gate.py` on `SessionStart`, `pii_gate.py` on
-`PreToolUse`, and `review_output.py --gate` on `Stop`. From the global settings:
-`prompt_gate.py` on `UserPromptSubmit`. From `.githooks/`: `hooks_guard.py` on
+`PreToolUse`, and `review_output.py --gate` on `Stop`. From `.githooks/`: `hooks_guard.py` on
 commit and push. In CI: `vault-lint.yml`, `branch-policy.yml`, `secret-scan.yml`.
 
 ## 3. Test strategy
@@ -77,7 +76,7 @@ configuration rather than a service. Most of the risk sits in two places: a merg
 that damages configuration the vault does not own, and a step that reports
 success without binding anything.
 
-Unit level, already automated. `scripts/test_install_vault.py`, 179 cases, covers
+Unit level, already automated. `scripts/test_install_vault.py`, 178 cases, covers
 the settings merge (other hooks and settings survive, a second run adds no
 duplicate entry, the old file is backed up, malformed JSON is refused and left
 byte-for-byte), the detection filter (`safe()` drops a token or an overlong
@@ -87,8 +86,8 @@ plugin step's reading of the two halves that go missing independently. It also
 covers the old-layout cleanup: only legacy skill names are moved, and only under
 `--force`, into a backup folder outside `skills/`; retired plugins are found in the
 settings or in `installed_plugins.json`; auto-update is switched on without
-touching other marketplaces; and the deny-rules step picks the newest central
-by version number. It runs
+touching other marketplaces; and `central` and `humanizer` are retired with no
+replacement. It runs
 against `$VAULT_CLAUDE_HOME` in a temporary directory, so no case can reach the
 real `~/.claude/settings.json`.
 
@@ -99,7 +98,7 @@ updated before anything installs from it and a retired plugin is uninstalled and
 replaced. Acceptance cases 22 to 28 cover the real CLI.
 
 Also automated: `scripts/test_review_output.py` (10 cases, the Stop gate),
-`scripts/test_prompt_gate.py`, `scripts/test_pii_gate.py`,
+`scripts/test_pii_gate.py`,
 `scripts/test_setup_vault.py`, and the four lints in CI.
 
 Integration level, manual, below. These need a real clone, a real git config and
@@ -126,20 +125,19 @@ differ.
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 1 | Fresh clone, nothing installed | `python scripts/install_vault.py --check` | Every step listed; plugins, auto-update, deny rules, git guards and local bindings `PENDING`, exit code 1 |
+| 1 | Fresh clone, nothing installed | `python scripts/install_vault.py --check` | Every step listed; plugins, auto-update, git guards and local bindings `PENDING`, exit code 1 |
 | 2 | Fresh clone | `--dry-run` | Same plan printed, exit code 0, and `git config --get core.hooksPath` is still unset |
-| 3 | Fresh clone, Claude Code open on the folder | Type "install the vault" | The `install-vault` skill runs, shows the plan, asks before touching `~/.claude/settings.json` |
+| 3 | Fresh clone, Claude Code open on the folder | Type "install the vault" | Claude follows [[update]], shows the plan, asks before touching `~/.claude/settings.json` |
 | 4 | Plan shown | Answer yes | The pending steps apply, a line says to restart Claude Code, the gate lines print, the "still needs you" list prints |
 | 5 | Just applied | `--check` | Every step `ok`, exit code 0 |
 | 6 | Just applied | `git config --get core.hooksPath` | `.githooks` |
 | 7 | Just applied | `ls ~/.claude/skills` | none of the old layout's skill names: no vault skill loads as a loose file any more |
-| 7a | Just applied | `claude plugin list` | `central@skills`, `humanizer@skills` and `superpowers@claude-plugins-official` all enabled |
-| 7b | Just applied | Ask Claude to use `central:safe-refactor` | It resolves, and no bare `safe-refactor` exists to compete with it |
-| 8 | Just applied | Read `~/.claude/settings.json` | No `UserPromptSubmit` entry naming `prompt_gate.py`; the plugin supplies it. Every pre-existing setting intact |
-| 8a | Just applied | `python scripts/test_prompt_gate.py` | 32/32, run against the plugin's copy of the gate |
+| 7a | Just applied | `claude plugin list` | `token-weather-usage@skills`, `flightdeck@skills`, `next-steps@skills` and `superpowers@claude-plugins-official` all enabled; no `central@skills` or `humanizer@skills` |
+| 7b | Just applied | Ask Claude to use `superpowers:systematic-debugging` | It resolves, and no bare `systematic-debugging` exists to compete with it |
+| 8 | Just applied | Read `~/.claude/settings.json` | No `UserPromptSubmit` entry naming `prompt_gate.py`. Every pre-existing setting intact |
 | 9 | Just applied | Read `_local/cli-bindings.md` and `_local/workspace-bindings.md` | Detected values filled in, undetected ones named under "Still blank" |
 | 10 | Already installed | Run `--yes` again | "nothing to do", no second hook entry, no file rewritten |
-| 11 | Already installed | Start a new Claude Code session | `SessionStart` prints the gate line; a prompt containing an email address is blocked by the prompt gate |
+| 11 | Already installed | Start a new Claude Code session | `SessionStart` prints the gate line |
 | 12 | Installed, on `main` | `git commit` | Refused by `hooks_guard.py` |
 | 13 | Installed | Write a file to `raw/output/`, end the turn | The Stop gate fires once and opens the triage review |
 | 14 | Installed | End a second turn without triaging | The gate stays silent for the rest of that session |
@@ -159,12 +157,12 @@ Failure and edge cases, all of which must fail safely rather than loudly:
 | 23 | Case 22, then `gh auth login` | `--yes` again | The plugin step alone applies, and the other four report nothing to do |
 | 24 | `claude` not on PATH | `--yes` | The plugin step reports "the claude CLI is not on PATH", the other four apply |
 | 25 | `skills` already added, plugin not installed | `--yes` | `marketplace update skills` runs, then `plugin install`; the marketplace is not re-cloned |
-| 26 | `skills` clone from before central existed | `--yes` | The clone is updated first and central installs, rather than failing as "not found" |
-| 27 | `engineering@skills` or `cache-handoff@skills` enabled from an older install | `--yes` | It is uninstalled, its replacement (central or token-weather-usage) stays, and `claude plugin list` no longer shows it |
+| 26 | `skills` clone from before flightdeck existed | `--yes` | The clone is updated first and flightdeck installs, rather than failing as "not found" |
+| 27 | `engineering@skills`, `cache-handoff@skills`, `central@skills` or `humanizer@skills` enabled from an older install | `--yes` | It is uninstalled, token-weather-usage replaces cache-handoff, the others get no replacement, and `claude plugin list` no longer shows it |
 | 28 | Old-layout skill copies and a skill of your own in `~/.claude/skills/` | `--yes`, then `--yes --force` | The first run leaves both and says `--force` is needed; the second moves only the old-layout copies to `~/.claude/skills-backup-<timestamp>/` |
 | 29 | `context-mode` installed, no Node.js on PATH | `--check` | `hook runtimes` is `PENDING` and names `context-mode@skills`; `--yes` reports it FAILED with both fixes and installs nothing |
 | 30 | `claude-mem@skills` installed | `--yes` | It is uninstalled, the report says it was renamed session-memory, and session-memory is not installed |
-| 31 | `python` is missing, is Python 2, or is the Microsoft Store alias | Run the installer with `py -3` or `python3`, `--check` | `hook runtimes` is `PENDING`, names central and this vault's hooks, and offers only installing Python, never removing a plugin |
+| 31 | `python` is missing, is Python 2, or is the Microsoft Store alias | Run the installer with `py -3` or `python3`, `--check` | `hook runtimes` is `PENDING`, names this vault's hooks, and offers only installing Python, never removing a plugin |
 | 32 | No `uv`, no PyYAML, or on Windows no tzdata | `--check` | Each is listed under "optional tools missing" with its install command, and none of them changes the exit code |
 | 33 | skills on GitHub is ahead of the local clone, or an installed plugin is older than the clone offers | `--yes` | `plugin updates` pulls the clone, runs `claude plugin update` for each outdated skills plugin, and says to restart Claude Code |
 | 34 | flightdeck or next-steps not installed | `--yes` | Both install with the other expected plugins |

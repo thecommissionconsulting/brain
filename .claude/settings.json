@@ -1,20 +1,9 @@
 {
-  "extraKnownMarketplaces": {
-    "claude-plugins-official": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-plugins-official",
-        "ref": "3ea32df27be71d78775e627df2382fc26203577f"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "central@skills": true,
-    "humanizer@skills": true,
-    "token-weather-usage@skills": true,
-    "flightdeck@skills": true,
-    "next-steps@skills": true
+  "permissions": {
+    "deny": [
+      "Read(./wiki/internal/playbooks/services-team/2026-graduate-programme/candidates/**)",
+      "Read(./wiki/internal/playbooks/services-team/ludo-s-schedule.md)"
+    ]
   },
   "hooks": {
     "SessionStart": [
@@ -55,10 +44,19 @@
       }
     ]
   },
-  "permissions": {
-    "deny": [
-      "Read(./wiki/internal/playbooks/services-team/2026-graduate-programme/candidates/**)",
-      "Read(./wiki/internal/playbooks/services-team/ludo-s-schedule.md)"
-    ]
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "token-weather-usage@skills": true,
+    "flightdeck@skills": true,
+    "next-steps@skills": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official",
+        "ref": "3ea32df27be71d78775e627df2382fc26203577f"
+      }
+    }
   }
 }

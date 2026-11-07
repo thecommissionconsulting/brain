@@ -19,6 +19,7 @@ then grep. Two hops before a note.
 - About how the company does the work → `wiki/internal/`
 - About who the company is or how the company runs → `wiki/company/`
 - Setting up a new workstation → [[new-machine]] (`_ai/`), a PowerShell script that installs Git, Python and Claude Code
+- Setting up Claude Code like Daru's (style, plugins, mods, rules, Jev) → [[claude-setup]] (`_ai/`), a portable runbook that needs no repo
 - Updating or installing the vault on a workstation → [[update]] (`_ai/`), what Claude follows for "update the vault"
 - Proving a new workstation is installed → [[vault-install-test-plan]] (`_ai/`), run by `scripts/verify_install.py`, report in `raw/output/`
 - A generated artifact — report, export, extract, scratch file → `raw/output/`, never
@@ -31,8 +32,9 @@ No skills live in this repo. Every one is a plugin, installed from the
 `skills` marketplace or from Anthropic's, and called by its plugin name.
 `python scripts/install_vault.py` adds the marketplaces and installs them.
 
-- `central` — everything the company writes in-house. One plugin, 17 skills.
-  Source: the `skills` marketplace folder beside this vault, `plugins/central/`.
+Four plugins, and only `superpowers` ships skills. `central` and `humanizer` were
+retired on 2026-11-07; the installer uninstalls them where it finds them.
+
 - `token-weather-usage` — the local band above the prompt: usage limits, prompt cache
   time left, cost, running subagents, and a Handoff button that writes a handoff note.
   No skills. Source: the `skills` marketplace folder beside this vault, `plugins/token-weather-usage/`.
@@ -42,8 +44,6 @@ No skills live in this repo. Every one is a plugin, installed from the
   answer. No skills. Referenced by the `skills` marketplace, pinned to a reviewed commit.
 - `superpowers` — Anthropic's, from `claude-plugins-official`. Brainstorming,
   planning, TDD, systematic debugging and code review.
-- `humanizer` — third-party (blader, MIT), referenced by the `skills`
-  marketplace and pinned to a reviewed commit.
 
 They used to be committed here, under `.agents/skills/` and `.claude/skills/`,
 and copied to `~/.claude/skills/` by a script. Both trees and that script are
@@ -52,24 +52,11 @@ copies drifted from the plugin. The plugin is now the only source.
 
 | Skill | Use it for |
 | --- | --- |
-| **central:answer-only** | Answer-only replies, plus a PII gate on the prompt. Runs from a `UserPromptSubmit` hook the plugin ships, so it needs no call |
-| **central:caveman** | Compressed reply mode, lite through ultra. Cuts output tokens |
-| **central:caveman-commit** | A Conventional Commits message stripped to intent |
-| **central:caveman-compress** | Shrink a CLAUDE.md or todo list, keeping a readable backup |
-| **central:caveman-explore** | Read-only repo exploration that returns path:line citations only |
-| **central:caveman-help** | Quick reference for the caveman modes and commands |
-| **central:caveman-review** | Compressed review output: one line per finding, with location and fix. Superpowers owns when to request a review and how to answer one |
-| **central:caveman-stats** | This session's token use and savings, read from the local log |
-| **central:data-model-audit** | Audit an existing data model (dbt, SQL or notebook exports) against the company's dimensional, layering, testing and SAP standards. Reports only findings whose file:line evidence passes a scripted check |
-| **central:install-vault** | Installing this vault on a new machine: git guards, plugins, prompt gate, `_local/` bindings. Say "install the vault" |
-| **central:lean-build** | Build a feature without overbuilding, against an explicit stop condition |
-| **central:markdown-converter** | PDF, Word, Excel, PowerPoint, images or audio into Markdown |
-| **central:migration** | Reversible schema, data, API or config transitions |
-| **central:safe-refactor** | Restructure code while preserving its behaviour |
-| **central:surgical-patch** | Fix a bug at the narrowest layer that can hold the fix |
-| **central:timesheet-recall** | Rebuild a blank timesheet day from your local Claude Code and Grok CLI session histories. Read-only |
-| **central:vault-rag** | Semantic search over this vault's embedding index. Explicit call only (R-43) |
-| **humanizer** | Rewrite AI-sounding prose so it reads like the writer. The vault's writing style |
+| **superpowers:brainstorming** | Shape an idea into a design before building anything |
+| **superpowers:writing-plans** | Turn an agreed design into a step-by-step plan |
+| **superpowers:executing-plans** | Carry out a written plan in this session |
+| **superpowers:test-driven-development** | Write the failing test before the code |
+| **superpowers:requesting-code-review** | Get work reviewed before it merges |
 | **superpowers:systematic-debugging** | Diagnose a failure before editing anything. Replaced the vault's `investigate-first` |
 | **superpowers:verification-before-completion** | Prove work meets its acceptance conditions. Replaced the vault's `verify-and-stop` |
 

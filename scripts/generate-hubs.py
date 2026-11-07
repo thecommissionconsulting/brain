@@ -255,7 +255,11 @@ def main() -> int:
     # A machine with none installed writes no rows rather than an empty table.
     cache = Path.home() / ".claude" / "plugins" / "cache"
     skill_rows = []
-    for manifest in sorted(cache.glob("*/central/*/skills/*/SKILL.md")):
+    # central, the only company plugin that shipped skills, was retired on
+    # 2026-11-07. token-weather-usage and flightdeck ship none today.
+    manifests = [m for p in ("token-weather-usage", "flightdeck")
+                 for m in cache.glob(f"*/{p}/*/skills/*/SKILL.md")]
+    for manifest in sorted(manifests):
         if manifest.stat().st_size == 0:
             continue
         plugin = manifest.parents[2].parent.name

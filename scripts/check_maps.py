@@ -14,6 +14,7 @@ Two changes from the obsidian-legacy original, per vault-restructure-design.md �
     prose mention of the word.
   - SKIP_DIRS drops confluence and archive, and adds raw.
 """
+import json
 import pathlib
 import re
 import sys
@@ -41,9 +42,10 @@ def warn(m):
 
 # ---- 1. Skill map (index.md §5) <-> the skills installed plugins provide ----
 #
-# No skill is committed here any more. Every one arrives as a plugin: central
-# and humanizer from the skills marketplace, superpowers from Anthropic's.
-# The trees this used to read, .agents/skills/ and .claude/skills/, are gone. A
+# No skill is committed here any more. Every one arrives as a plugin. Today only
+# superpowers, from Anthropic's marketplace, ships skills; the company's own
+# plugins (token-weather-usage, flightdeck) ship none. central and humanizer were
+# retired on 2026-11-07. The trees this used to read, .agents/skills/ and .claude/skills/, are gone. A
 # skill committed inside a working repo only loads when you are in that repo, so
 # they had to be copied to ~/.claude/skills/ by a script, and the copies drifted.
 #
@@ -52,7 +54,25 @@ def warn(m):
 # before install_vault.py has run -- there is nothing to compare against, so the
 # check says so instead of failing every entry.
 PLUGIN_CACHE = pathlib.Path.home() / ".claude" / "plugins" / "cache"
+INSTALLED = pathlib.Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+# The company's own plugins: every skill one of them ships must be listed in §5.
+COMPANY_PLUGINS = ("token-weather-usage", "flightdeck")
 on_disk, no_desc, origin, tally = set(), set(), {}, {}
+
+
+def installed_paths():
+    """The install folders the CLI records as installed, or None if it records none.
+
+    `claude plugin uninstall` leaves the cache folder behind, so the cache alone
+    would still count an uninstalled plugin's skills as live.
+    """
+    try:
+        data = json.loads(INSTALLED.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return {pathlib.Path(e["installPath"]).resolve()
+            for entries in (data.get("plugins") or {}).values()
+            for e in entries if e.get("installPath")}
 
 
 def plugin_skills():
@@ -61,8 +81,11 @@ def plugin_skills():
     Two layouts in the wild: a multi-skill plugin keeps them under skills/, and a
     single-skill plugin puts SKILL.md at its root with the plugin's own name.
     """
+    keep = installed_paths()
     for version_dir in sorted(PLUGIN_CACHE.glob("*/*/*")):
         if not version_dir.is_dir():
+            continue
+        if keep is not None and version_dir.resolve() not in keep:
             continue
         label = version_dir.parent.name            # .../cache/<market>/<plugin>/<ver>
         skills_dir = version_dir / "skills"
@@ -106,7 +129,7 @@ else:
           f"({', '.join(f'{n} in {t}' for t, n in sorted(tally.items()))}).")
     # Only the company's own plugins are required to be listed. Anthropic's ship and
     # change on their own schedule, and §5 names the few that matter here.
-    ours = {n for n, t in origin.items() if t == "central"}
+    ours = {n for n, t in origin.items() if t in COMPANY_PLUGINS}
     for name in sorted(ours - listed):
         err(f"skill '{name}' is provided by the {origin[name]} plugin but is NOT "
             f"in index.md sec 5 — add it.")
