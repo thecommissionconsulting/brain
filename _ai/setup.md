@@ -152,11 +152,12 @@ reviewed commit). After each answer it suggests up to three follow-up prompts ab
 input; press 1, 2 or 3 to put one in the box as a draft, 0 to dismiss. Each suggestion
 is one short extra model call, so it adds a little usage.
 
-Every "update the vault" run also keeps these current. When GitHub has a newer
-`skills` than the local clone, it pulls the clone, then runs `claude plugin update`
-for every installed skills plugin the clone has a newer version of. Auto-update does
-the same when Claude Code starts, but only once it has been switched on, so the update
-does not wait for it.
+Every "update the vault" run also keeps these current. The run pulls the vault, which
+brings in any new plugin versions under `marketplace/`, then runs `claude plugin update`
+for every installed skills plugin whose version there differs from the one installed.
+When `VAULT_SKILLS_DIR` points at a marketplace that is its own git clone, the run also
+pulls that clone when GitHub is ahead of it. Auto-update does the same when Claude Code
+starts, but only once it has been switched on, so the update does not wait for it.
 
 `superpowers` comes from `claude-plugins-official`, which ships with Claude Code, so it
 usually needs no `marketplace add` of its own. It also replaced two vault skills:
