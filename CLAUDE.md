@@ -1,8 +1,7 @@
 @_local/CLAUDE.md
 
-Semantic search over the vector index is unavailable. Its skill, `central:vault-rag`,
-was retired with the `central` plugin on 2026-11-07. Vector retrieval stays barred from
-hooks and from running automatically (R-43).
+The vault has no vector search. It was removed on 2026-11-09. The route is `index.md`, then the
+folder hub, then grep.
 
 Exception: when the user says "update the vault", "install the vault" or "check the
 vault", or asks to set this machine up, read `_ai/update.md` and follow it in place of

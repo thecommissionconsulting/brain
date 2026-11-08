@@ -169,8 +169,8 @@ why, rather than calling the update done.
 ## 7. What is left for a person
 
 Go through the "still needs you" list from §5 with them: git identity, any optional
-tools still missing, and credentials. [[setup]] has the reasoning for each. Obsidian, the
-`_local/` binding files and the vector index are not part of the install for now: they
+tools still missing, and credentials. [[setup]] has the reasoning for each. Obsidian and the
+`_local/` binding files are not part of the install for now: they
 are set up by hand as they are added, so do not create, check or ask for them.
 
 Related: [[setup]] · [[vault-install-test-plan]] · [[new-machine]]

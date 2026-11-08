@@ -132,8 +132,7 @@ claude plugin list                                        # what is installed an
 
 `central` (the company's in-house skills, the `answer-only` prompt gate and the
 credential deny rules) and `humanizer` were retired on 2026-11-07. The installer
-uninstalls both where it finds them. Their skills, including `vault-rag` and
-`install-vault`, are no longer available.
+uninstalls both where it finds them. Their skills are no longer available.
 
 `token-weather-usage` is this copy of Eric Cologni's plugin (Apache-2.0), kept in
 `skills` with local changes. It draws one band above the prompt: the 5-hour and
@@ -270,7 +269,7 @@ fields it cannot detect are left blank, and it names them; fill them with
 - **Paths** — never hardcode another machine's absolute paths into a synced note; put them in
   your local `CLAUDE.md`.
 - **Workspace location** — on Windows `setup_vault.py` defaults the workspace to `C:\`, so the
-  vault clones to `C:\vault` and `rag` to `C:\rag`: short paths outside the
+  vault clones to `C:\vault`: a short path outside the
   user profile, clear of OneDrive redirection and the 260-character path limit. On Linux and
   macOS the default is `~/workspace`.
 - **WSL** — reports itself as Linux, so `setup_vault.py` defaults the workspace to `~/workspace`,
@@ -278,22 +277,10 @@ fields it cannot detect are left blank, and it names them; fill them with
   `/opt/Obsidian/obsidian`, `~/.config/obsidian/`), which is right for a Linux build running
   inside WSL — a Windows-side Obsidian reading `/mnt/...` will not be found.
 
-## 5. Vector retrieval (optional)
+## 5. Vector retrieval (removed)
 
-The vault has a vector database for semantic search, invoked only by the `vault-rag`
-skill and never by a hook. It is not needed for ordinary work: the default route stays
-`index.md` → folder hub → grep.
-
-Set it up from [[vault-rag]] (`wiki/internal/rag/vault-rag.md`), which carries the
-design and the task-by-task build. To learn how to refresh it — update commands,
-timings, health checks — use [[vault-rag-runbook]]
-(`wiki/internal/rag/vault-rag-runbook.md`) instead; it is the authoritative,
-currently-measured source for that, rather than [[vault-rag]]'s own §9. The database
-itself lives outside this repo, in the installer directory, so it is never committed
-and never syncs to another machine. Each machine builds its own.
-
-**Never run the installer's `setup.py`.** It writes a global `UserPromptSubmit` hook into
-`~/.claude/settings.json` and defaults to yes. See [[vault-rag]] §5.1.
+The vault no longer has vector search. It was removed on 2026-11-09. Use `index.md`, then the
+folder hub, then grep.
 
 ## 6. What runs by itself, once this is done
 
@@ -328,4 +315,4 @@ full history as the backstop behind the local secret guard.
 How to prove an install actually took, with 27 acceptance cases and the coverage gaps:
 [[vault-install-test-plan]].
 
-Related: [[rules]] · [[retrieval]] · [[vault-rag]] · [[vault-install-test-plan]]
+Related: [[rules]] · [[retrieval]] · [[vault-install-test-plan]]

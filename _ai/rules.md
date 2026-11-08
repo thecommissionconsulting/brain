@@ -64,7 +64,7 @@ is how the vault gets more reliable over time. Today: 16 HARD, 8 WARN, 29 MANUAL
 | R-27 | Data | Blocked source zones never reach the vault by any route | `exclusions.py` docstring | `exclusions.py` `blocked()`, called by importer and router | **HARD** | ok |
 | R-28 | Data | Sensitive filename patterns are reported, not removed | `exclusions.py` docstring | `exclusions.py` `flagged()` | WARN | ok |
 | R-30 | Data | Secrets live in the tools' own config, never in a note | [[setup]] | `hooks_guard.py` blocks the commit and the push; `secret-scan.yml` TruffleHog is the post-push backstop | **HARD** (local) | ok |
-| R-31 | Data | Machine and personal bindings live only in `_local/` | [[setup]] | `.gitignore` | **HARD** | ok — the installer's location is in `_local/rag.path`, written by `setup_vault.py`; [[vault-rag]] Part 2 still quotes one machine's paths, kept deliberately as a record of what was run and stamped as such |
+| R-31 | Data | Machine and personal bindings live only in `_local/` | [[setup]] | `.gitignore` | **HARD** | ok |
 | R-32 | Data | `raw/`, `assets/`, `.confluence-private/` are never committed | `.gitignore` | `.gitignore`, plus `hooks_guard.py` which also catches `git add -f` | **HARD** | ok |
 | R-33 | Data | Content-level exclusions inside approved zones | `exclusions.py` docstring | `hooks_guard.py` warns on rates, tenant GUIDs and bulk external addresses at commit; `pii_gate.py` blocks reading them into the prompt | WARN | **breached, now visible** — a whole-tree scan on 2026-09-17 found charge-out rates in ~50 `services-team/trackers/` notes, 89 external addresses in `ludo-s-schedule.md` and 62 in the graduate-programme candidate evaluation. The gate warns on new occurrences; the existing ones are untriaged. |
 | R-34 | Git | `main` changes by PR | [[setup]] | `hooks_guard.py` refuses a commit or push to `main`, and a force-push or delete of it; `CODEOWNERS` auto-requests review. Still unenforceable server-side on GitHub Free | **HARD** (local) | ok |
@@ -76,8 +76,8 @@ is how the vault gets more reliable over time. Today: 16 HARD, 8 WARN, 29 MANUAL
 | R-40 | Git | Binary asset types are never diffed | `.gitattributes` | `.gitattributes` | **HARD** | ok |
 | R-41 | Git | A correction that repeats fixes this file, not the individual note | §Writing | — | MANUAL | ok |
 | R-42 | Git | A rule earns its place once friction appears twice | §Writing | — | MANUAL | ok |
-| R-43 | Model | Vector retrieval is invoked by explicit skill call only, never a hook | [[vault-rag]] §5 | — | MANUAL | ok — no configured hook (`session_gate.py`, `pii_gate.py`, `review_output.py`) touches a retrieval path. The skill that ran it, `central:vault-rag`, was retired on 2026-11-07, so vector retrieval is unavailable for now |
-| R-44 | Model | Tooling is excluded from the retrieval index | [[vault-rag]] §4 | — | MANUAL | ok — `.agents/skills/` and `.claude/skills/` are gone, so there is no tooling tree left to index; `scripts/` remains excluded |
+| R-43 | Model | Retired 2026-11-09: vector search was removed from the vault | — | — | MANUAL | retired |
+| R-44 | Model | Retired 2026-11-09: there is no retrieval index to exclude tooling from | — | — | MANUAL | retired |
 | R-45 | Model | Claude drafts; a human decides what is true | §Output contract | the `owner:` field on every note | MANUAL | ok |
 | R-46 | Model | The model writes only where §Permissions allows | §Permissions | — | MANUAL | ok |
 | R-48 | Model | Generated artifacts — a report, export or scratch file — are written to `raw/output/`, never into `wiki/` | §Permissions | `.gitignore` keeps `raw/` out of the repo; nothing checks the placement itself | MANUAL | ok |
@@ -236,13 +236,11 @@ note, [[retrieval]] and a direct human instruction carry authority.
 ## Retrieval contract
 
 - The default route is `index.md` → folder hub → grep. Two hops before a note.
-- Vector retrieval replaces that route **only** for the duration of an explicit skill call.
-  Never a hook, never ambient. See [[vault-rag]] §5. No such skill is installed since
-  `central` was retired on 2026-11-07, so today the default route is the only one.
+- There is no other route. Vector search was removed on 2026-11-09.
 - Skills live in plugins outside this repo, so a client question cannot retrieve tooling
   instructions.
 - 238 notes are frontmatter-only stubs with no retrievable body. If a question returns
-  nothing, that gap is the first suspect. See [[vault-rag]] §4.1.
+  nothing, that gap is the first suspect.
 
 ## Output contract
 
@@ -332,4 +330,4 @@ Two other hooks sit in `.claude/settings.json`: `pii_gate.py` on `PreToolUse`, w
 the vault's bulk personal data out of the prompt, and `review_output.py --gate` on `Stop`,
 which raises the artifact review once per session (§Artifact triage).
 
-Related: [[retrieval]] · [[setup]] · [[vault-rag]]
+Related: [[retrieval]] · [[setup]]
