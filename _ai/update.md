@@ -42,7 +42,7 @@ accepting it.
 
 ```bash
 claude --version
-ls ../../skills/skills-main/.claude-plugin/marketplace.json
+ls marketplace/.claude-plugin/marketplace.json
 ```
 
 `claude` must be on PATH: the installer adds and removes plugins through it. The
@@ -57,9 +57,9 @@ On macOS or Linux it is `curl -fsSL https://claude.ai/install.sh | bash`. It ins
 into `~/.local/bin`; the new command is only found after Claude Code restarts, so ask
 them to restart now and say "update the vault" again.
 
-The `skills` marketplace is a folder beside this vault, `skills/skills-main` in the same
-workspace folder that holds `vault/`, and the plugin step adds it from there. If the
-`ls` line finds no `marketplace.json`, ask the person where the folder is and set
+The `skills` marketplace is this vault's own `marketplace/` folder, and the plugin step
+adds it from there. If the `ls` line finds no `marketplace.json`, the clone is
+incomplete: stop and say so. If the person keeps the marketplace somewhere else, set
 `VAULT_SKILLS_DIR` to it before running the installer. Do not continue past the plugin
 step without it; the rest of the install would apply but the plugins would not.
 

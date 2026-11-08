@@ -122,7 +122,7 @@ every repo you open rather than only inside this one, and there is no second cop
 to drift. `install_vault.py` does this for you, or by hand:
 
 ```bash
-claude plugin marketplace add ../../skills/skills-main
+claude plugin marketplace add ./marketplace               # from the vault root
 claude plugin install token-weather-usage@skills
 claude plugin install flightdeck@skills
 claude plugin install next-steps@skills
@@ -179,10 +179,10 @@ This vault's own `.claude/settings.json` enables the same plugins. It does not d
 the `skills` marketplace, because that is a folder whose path differs per machine (R-31);
 the installer, or `claude plugin marketplace add`, registers it in your global settings.
 
-`skills` is a folder beside this vault (`skills/skills-main` in the same workspace
-folder that holds `vault/`), so `claude plugin marketplace add` needs that folder to be
-there. Without it `install_vault.py` reports that step as FAILED while finishing the rest.
-Put the folder in place, or set `VAULT_SKILLS_DIR` to where it is, and re-run.
+`skills` is this vault's own `marketplace/` folder, so a clone carries it and no second
+repo is needed. If you keep the marketplace somewhere else, set `VAULT_SKILLS_DIR` to the
+folder that holds its `.claude-plugin/marketplace.json`. Without a marketplace there,
+`install_vault.py` reports that step as FAILED while finishing the rest.
 
 ### Git guards (run once per clone)
 The guards that refuse a commit on `main`, a `vault backup:` message there, a secret, or a
