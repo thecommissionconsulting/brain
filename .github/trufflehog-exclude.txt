@@ -1,0 +1,4 @@
+# Paths TruffleHog skips, one regular expression per line. Only test fixtures with
+# fake credentials belong here, each as an exact, anchored path.
+# The redaction test feeds a fake Postgres URL (bob:hunter2) to the masking code.
+^marketplace/plugins/flightdeck/tests/flightdeck\.test\.ts$
