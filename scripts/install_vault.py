@@ -39,8 +39,8 @@ of them, reports what it changed, and names what is left for a human.
                                                 scripts/verify_install.py
 
 Idempotent. On a machine that is already installed the plan is empty and --check
-exits 0. Nothing here asks for a secret, sets your git identity, or starts the
-~100 minute index build: those need a person, and the closing report names them.
+exits 0. Nothing here asks for a secret or sets your git identity: those need a person, and
+the closing report names them.
 
 `scripts/setup_vault.py` is the other half and the earlier one. It clones the
 workspace, sets a git identity and installs Obsidian, which is what you need
@@ -186,7 +186,7 @@ LEGACY_SKILLS = (
 # The fields the two binding files hold. Most of them the machine already knows,
 # so asking a person to type them is asking them to transcribe. `detect()` reads
 # what it can and leaves the rest blank; `--bindings key=value` fills a blank in.
-FIELDS = ("workspace_root", "vault_clone", "rag", "client_workspaces",
+FIELDS = ("workspace_root", "vault_clone", "client_workspaces",
           "git_name", "git_email", "gh_account", "snowflake", "dbt", "gws_config",
           "paymo_user_id")
 
@@ -226,12 +226,10 @@ def detect():
                            connections.read_text(encoding="utf-8", errors="replace"), re.M)
     except OSError:
         pass
-    rag = ROOT / "_local" / "rag.path"
     gws = os.environ.get("GWS_CONFIG_DIR") or str(home / ".gws")
     return {
         "workspace_root": str(ROOT.parent),
         "vault_clone": str(ROOT),
-        "rag": rag.read_text(encoding="utf-8").strip() if rag.exists() else "",
         "client_workspaces": "",
         "git_name": run("git", "config", "--get", "user.name").stdout.strip(),
         "git_email": run("git", "config", "--get", "user.email").stdout.strip(),
@@ -271,7 +269,6 @@ vault. Written by `scripts/install_vault.py`.
 |---|---|
 | workspace root | {v['workspace_root']} |
 | this vault clone | {v['vault_clone']} |
-| rag installer | {v['rag']} |
 | client workspaces | {v['client_workspaces']} |
 """
     blank = [k for k in FIELDS if not v[k]]
@@ -1146,7 +1143,7 @@ STEPS = (
     ("hook runtimes", step_runtimes, apply_runtimes),
 )
 # Not a step for now: ("local bindings", step_bindings, apply_bindings). The binding
-# files, Obsidian and the vector index are being set up by hand as they are added, so
+# files and Obsidian are being set up by hand as they are added, so
 # nothing here writes, checks or asks for them. `--bindings` still writes the files.
 
 # The steps that take something already on the machine, and so only do it with --force.

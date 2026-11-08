@@ -41,10 +41,9 @@ Everything below happens from that. The person answers two kinds of question and
 nothing else: a confirmation before the global settings file is touched, and the
 handful of binding fields the machine cannot detect.
 
-Outside the conversation, three things still need them: opening the folder as a
-vault in Obsidian and accepting the Git plugin trust prompt, putting credentials
-in each tool's own config, and deciding whether to spend about 100 minutes
-building the vector index.
+Outside the conversation, two things still need them: opening the folder as a
+vault in Obsidian and accepting the Git plugin trust prompt, and putting credentials
+in each tool's own config.
 
 ## 2. What happens behind it
 
@@ -60,7 +59,7 @@ writes the report described there. Four steps, each idempotent:
 | local bindings | `_local/cli-bindings.md` and `_local/workspace-bindings.md` | `_local/` is gitignored in full |
 
 The binding files are written from `--detect`, which reads the workspace and
-clone paths, the git identity, `_local/rag.path`, the `gh` account, the
+clone paths, the git identity, the `gh` account, the
 Snowflake connection names, the dbt project id and the `gws` config directory.
 Only undetectable fields are asked about, then filled with `--bindings key=value`.
 
@@ -152,7 +151,7 @@ Failure and edge cases, all of which must fail safely rather than loudly:
 | 18 | A binding file the person has edited | `--bindings paymo_user_id=1234` | The file is rewritten and the old one is backed up beside it |
 | 19 | `~/.snowflake/connections.toml` holds a password | `--detect` | Only connection names appear, no value from the file |
 | 20 | No git identity set | `--yes` | The report says the identity is unset rather than inventing one |
-| 21 | No network | `--yes` | The four local steps still apply; the plugin step fails and says so, and only the optional index build needs the network besides |
+| 21 | No network | `--yes` | The four local steps still apply; the plugin step fails and says so |
 | 22 | The skills marketplace folder is missing | `--yes` | The plugin step reports FAILED naming the marketplace, every other step still applies, exit is not a crash |
 | 23 | Case 22, then `gh auth login` | `--yes` again | The plugin step alone applies, and the other four report nothing to do |
 | 24 | `claude` not on PATH | `--yes` | The plugin step reports "the claude CLI is not on PATH", the other four apply |

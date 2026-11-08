@@ -10,12 +10,11 @@ follow and nothing caught it. A script is executable, so it fails loudly instead
     python setup_vault.py              # interview, show the plan, confirm, apply
     python setup_vault.py --dry-run    # interview and show the plan, change nothing
 
-Four questions, always the same four, always in this order:
+Three questions, always the same three, always in this order:
 
     1. Where should the workspace live?
     2. Git name, then email.
     3. Install Obsidian?              (skipped when it is already installed)
-    4. Build the vector index now?    (defaults to no - it is a ~100 minute job)
 
 The interview is a pure function over an IO facade (`ask`), so the whole thing
 replays from a list of canned answers in tests and the resulting plan can be
@@ -48,22 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 VAULT_REPO = "https://github.com/<owner>/vault.git"
-INSTALLER_REPO = "https://github.com/<owner>/rag.git"
 VAULT_DIR = "vault"
-INSTALLER_DIR = "rag"
-# Where the vault records this machine's installer location. _local/ is
-# gitignored, so the path never reaches a synced note - vault rule R-31
-# classifies absolute machine paths as local-only, and _ai/setup.md agrees.
-INSTALLER_PATH_FILE = "_local/rag.path"
-
-# Measured on this corpus: 40,182 chunks at ~6.8 chunks/s on CPU.
-INDEX_MINUTES = 100
-
-# Calibrated over 44 probes. These are RECALL floors: they do not decide
-# whether the vault can answer a question - the vault-rag skill does that, by
-# grounding the question and reading the notes. See wiki/internal/rag/.
-MIN_SIMILARITY = 0.60
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 # ---------------------------------------------------------------------------
@@ -271,12 +255,11 @@ class Answers:
     git_name: str
     git_email: str
     install_obsidian: bool
-    build_index: bool
 
 
 def ask(io, detected):
-    """The four questions. Same order, same defaults, every time."""
-    io.tell("Company workspace setup. Four questions, then a plan you confirm.")
+    """The three questions. Same order, same defaults, every time."""
+    io.tell("Company workspace setup. Three questions, then a plan you confirm.")
     io.tell()
 
     if detected.wsl:
@@ -294,12 +277,8 @@ def ask(io, detected):
     else:
         install_obsidian = io.confirm("3. Install Obsidian?", default=True)
 
-    build_index = io.confirm(
-        f"4. Build the vector search index now? (~{INDEX_MINUTES} minutes)",
-        default=False)
-
     return Answers(workspace=workspace, git_name=git_name, git_email=git_email,
-                   install_obsidian=install_obsidian, build_index=build_index)
+                   install_obsidian=install_obsidian)
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +290,8 @@ def plan(answers, detected):
     ws = answers.workspace
     if not ws.exists():
         steps.append(f"create {ws}")
-    for name, url in ((VAULT_DIR, VAULT_REPO), (INSTALLER_DIR, INSTALLER_REPO)):
-        if not (ws / name / ".git").exists():
-            steps.append(f"clone {url} -> {ws / name}")
+    if not (ws / VAULT_DIR / ".git").exists():
+        steps.append(f"clone {VAULT_REPO} -> {ws / VAULT_DIR}")
     if answers.git_name and answers.git_name != detected.git_name:
         steps.append(f"git config --global user.name {answers.git_name!r}")
     if answers.git_email and answers.git_email != detected.git_email:
@@ -322,12 +300,6 @@ def plan(answers, detected):
         steps.append("install Obsidian")
     if not detected.vault_registered:
         steps.append(f"register {ws / VAULT_DIR} as an Obsidian vault")
-    installer = ws / INSTALLER_DIR
-    if not (installer / ".venv").exists():
-        steps.append(f"create {installer / '.venv'} and install its requirements")
-        steps.append(f"write {installer / 'config.json'} pointing at {ws / VAULT_DIR}")
-    if answers.build_index:
-        steps.append(f"build the search index (~{INDEX_MINUTES} minutes, unattended)")
     return steps
 
 
@@ -384,46 +356,6 @@ def register_vault(registry, vault_path, obsidian_running):
     return True, f"registered: {target}"
 
 
-# ---------------------------------------------------------------------------
-# Generated RAG configuration
-# ---------------------------------------------------------------------------
-
-def rag_config(vault_path):
-    """The installer's config, pointing at THIS machine's clone.
-
-    Generating it is what stops the installer path being hardcoded into notes
-    that sync to other machines - `_ai/setup.md` forbids that, and vault rule
-    R-31 classifies absolute machine paths as local-only.
-    """
-    vault = Path(vault_path)
-    return {
-        "purpose": "Retrieval over the vault. Queried only through the "
-                   "vault-rag skill, never a hook.",
-        "sources": ["obsidian", "documents"],
-        "documents": {"roots": [{"area": "index",
-                                 "path": vault.as_posix(),
-                                 "glob": "index.md"}],
-                      "max_file_mb": 40},
-        "obsidian": {"vaults": [{"path": (vault / "wiki").as_posix()},
-                                {"path": (vault / "_ai").as_posix(),
-                                 "area": "templates"}],
-                     "default_area": "wiki", "skip_folders": [],
-                     "max_file_mb": 5},
-        "youtube": {"urls": []},
-        "codex_sessions": {"paths": []},
-        "vector_backend": "sqlite",
-        "embedding": {"provider": "local", "model": EMBED_MODEL},
-        "privacy": {"local_only": True},
-        "query_distill": {"enabled": False},
-        "retrieval": {"min_similarity": MIN_SIMILARITY,
-                      "min_top_similarity": MIN_SIMILARITY,
-                      "limit": 4, "max_per_source": 4, "max_per_parent": 2,
-                      "dedupe_similarity": 0.93, "segment_query": True,
-                      "kind_boost": 1.35},
-        "schedule": {"enabled": False, "frequency": "none"},
-    }
-
-
 def obsidian_install_command(platform):
     """None means 'we do not install on this platform, report instead'."""
     if platform == "windows":
@@ -458,23 +390,15 @@ def run(cmd, cwd=None, io=None):
         return False
 
 
-def venv_python(installer, platform):
-    if platform == "windows":
-        return installer / ".venv" / "Scripts" / "python.exe"
-    return installer / ".venv" / "bin" / "python"
-
-
 def apply(answers, detected, io):
     ws = answers.workspace
     ws.mkdir(parents=True, exist_ok=True)
 
-    for name, url in ((VAULT_DIR, VAULT_REPO), (INSTALLER_DIR, INSTALLER_REPO)):
-        if (ws / name / ".git").exists():
-            io.tell(f"  {name}: already cloned")
-            continue
-        if not run(["git", "clone", url, str(ws / name)], io=io):
-            io.tell(f"  ! could not clone {name}. If the repo does not exist "
-                    "yet, create it and re-run - everything else is done.")
+    if (ws / VAULT_DIR / ".git").exists():
+        io.tell(f"  {VAULT_DIR}: already cloned")
+    elif not run(["git", "clone", VAULT_REPO, str(ws / VAULT_DIR)], io=io):
+        io.tell(f"  ! could not clone {VAULT_DIR}. If the repo does not exist "
+                "yet, create it and re-run - everything else is done.")
 
     if answers.git_name and answers.git_name != detected.git_name:
         run(["git", "config", "--global", "user.name", answers.git_name], io=io)
@@ -494,33 +418,6 @@ def apply(answers, detected, io):
         ok, msg = register_vault(obsidian_registry(detected.platform), vault_path,
                                  is_obsidian_running(detected.platform))
         io.tell(f"  Obsidian vault: {msg}")
-
-    installer = ws / INSTALLER_DIR
-    if installer.exists():
-        py = venv_python(installer, detected.platform)
-        if not py.exists():
-            run([sys.executable, "-m", "venv", str(installer / ".venv")], io=io)
-        if py.exists():
-            run([str(py), "-m", "pip", "install", "-q", "-r",
-                 str(installer / "requirements.txt")], cwd=installer, io=io)
-            cfg = installer / "config.json"
-            if cfg.exists():
-                io.tell(f"  config.json already present - left alone")
-            else:
-                cfg.write_text(json.dumps(rag_config(vault_path), indent=2),
-                               encoding="utf-8")
-                io.tell(f"  wrote {cfg}")
-            record = ws / VAULT_DIR / INSTALLER_PATH_FILE
-            record.parent.mkdir(parents=True, exist_ok=True)
-            record.write_text(f"{installer}\n", encoding="utf-8")
-            io.tell(f"  recorded the installer location in {INSTALLER_PATH_FILE}")
-
-            if answers.build_index:
-                io.tell(f"  building the index - about {INDEX_MINUTES} minutes")
-                run([str(py), "ingest.py"], cwd=installer, io=io)
-            else:
-                io.tell(f"  to build the index later:  cd {installer} && "
-                        f"{py.name} ingest.py")
 
     io.tell()
     io.tell("Done. Next: open the vault in Obsidian and read index.md.")

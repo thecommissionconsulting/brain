@@ -111,7 +111,6 @@ vault skills, which only make sense inside a vault clone:
 | Skill | Use when |
 | --- | --- |
 | `install-vault` | Installing or updating vault on a machine (`/install-vault`, "update the vault"). It follows the vault's own `_ai/update.md`. |
-| `vault-rag` | Explicitly asking for semantic search over the vault's embedding index (`/vault-rag`). |
 
 ### central security hooks
 
