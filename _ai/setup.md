@@ -122,7 +122,7 @@ every repo you open rather than only inside this one, and there is no second cop
 to drift. `install_vault.py` does this for you, or by hand:
 
 ```bash
-claude plugin marketplace add ../../skills/skills-main
+claude plugin marketplace add ./marketplace               # from the vault root
 claude plugin install token-weather-usage@skills
 claude plugin install flightdeck@skills
 claude plugin install next-steps@skills
@@ -152,11 +152,12 @@ reviewed commit). After each answer it suggests up to three follow-up prompts ab
 input; press 1, 2 or 3 to put one in the box as a draft, 0 to dismiss. Each suggestion
 is one short extra model call, so it adds a little usage.
 
-Every "update the vault" run also keeps these current. When GitHub has a newer
-`skills` than the local clone, it pulls the clone, then runs `claude plugin update`
-for every installed skills plugin the clone has a newer version of. Auto-update does
-the same when Claude Code starts, but only once it has been switched on, so the update
-does not wait for it.
+Every "update the vault" run also keeps these current. The run pulls the vault, which
+brings in any new plugin versions under `marketplace/`, then runs `claude plugin update`
+for every installed skills plugin whose version there differs from the one installed.
+When `VAULT_SKILLS_DIR` points at a marketplace that is its own git clone, the run also
+pulls that clone when GitHub is ahead of it. Auto-update does the same when Claude Code
+starts, but only once it has been switched on, so the update does not wait for it.
 
 `superpowers` comes from `claude-plugins-official`, which ships with Claude Code, so it
 usually needs no `marketplace add` of its own. It also replaced two vault skills:
@@ -179,10 +180,10 @@ This vault's own `.claude/settings.json` enables the same plugins. It does not d
 the `skills` marketplace, because that is a folder whose path differs per machine (R-31);
 the installer, or `claude plugin marketplace add`, registers it in your global settings.
 
-`skills` is a folder beside this vault (`skills/skills-main` in the same workspace
-folder that holds `vault/`), so `claude plugin marketplace add` needs that folder to be
-there. Without it `install_vault.py` reports that step as FAILED while finishing the rest.
-Put the folder in place, or set `VAULT_SKILLS_DIR` to where it is, and re-run.
+`skills` is this vault's own `marketplace/` folder, so a clone carries it and no second
+repo is needed. If you keep the marketplace somewhere else, set `VAULT_SKILLS_DIR` to the
+folder that holds its `.claude-plugin/marketplace.json`. Without a marketplace there,
+`install_vault.py` reports that step as FAILED while finishing the rest.
 
 ### Git guards (run once per clone)
 The guards that refuse a commit on `main`, a `vault backup:` message there, a secret, or a
