@@ -38,6 +38,11 @@ of them, reports what it changed, and names what is left for a human.
     python scripts/install_vault.py --yes       apply the plan, then run
                                                 scripts/verify_install.py
 
+The wiki (the knowledge base, its own repo) is wired by the same command when it
+is found: `--wiki PATH` names it, otherwise scripts/wiki_root.py finds it. Its five
+steps write per-machine, gitignored files only. `--wiki-only` runs just those, and
+never a global step.
+
 Idempotent. On a machine that is already installed the plan is empty and --check
 exits 0. Nothing here asks for a secret or sets your git identity: those need a person, and
 the closing report names them.
@@ -58,6 +63,11 @@ import shutil
 import subprocess
 import sys
 import time
+
+# wiki_root sits beside this file. Put the folder on the path before importing it,
+# so this works however the script was started.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS_PATH = ".githooks"
@@ -1126,6 +1136,342 @@ def apply_bindings():
     return True, detail + ("; still blank: " + ", ".join(blank) if blank else "")
 
 
+# ---- the wiki ---------------------------------------------------------------
+# The knowledge base is its own repo, cloned beside this one. The wiki steps wire
+# that clone to this brain with per-machine files only, all gitignored or outside
+# both repos: the pointer in _local/brain.json, _local/brain.md in the wiki, the
+# wiki's and the brain's .claude/settings.local.json, and git config in the wiki
+# clone. A fresh clone of either repo is therefore still plug and play.
+#
+# Each wiki step takes the wiki folder. Each state reads only; each apply is
+# idempotent, so a second run finds nothing to do.
+
+WIKI_HOOK_NAMES = ("pre-commit", "commit-msg", "pre-push")
+
+# An entry is ours when its command runs one of these scripts. Ours are replaced;
+# anything else in the same file, including a hook the owner added by hand, is kept.
+OUR_SCRIPTS = ("session_gate.py", "pii_gate.py", "review_output.py")
+PII_MATCHER = "Read|Grep|Glob|Bash|Write|Edit|NotebookEdit"
+DENY_READ = re.compile(r"Read\(\./(.+)\)")
+
+
+def brain_config():
+    return ROOT / "_local" / "brain.json"
+
+
+def find_wiki(explicit=None):
+    """The wiki folder to wire, or None. An explicit path is used as given and must hold index.md."""
+    if explicit:
+        path = pathlib.Path(explicit).expanduser().resolve()
+        return path if (path / "index.md").is_file() else None
+    return wiki_root.wiki_root(config=brain_config())
+
+
+def load_json(path):
+    """A JSON object from path, or {} when it is absent. A malformed file raises ValueError."""
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8").strip()
+    data = json.loads(text) if text else {}
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object")
+    return data
+
+
+def write_json(path, data):
+    """Write a JSON file, backing up the one it replaces. Returns the backup path or ""."""
+    backup = ""
+    if path.exists():
+        backup = str(path) + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, backup)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return backup
+
+
+def brain_import_line(brain, home=None):
+    """The @ line the wiki's _local/brain.md holds, and a warning when the path is risky.
+
+    Under home the line is `@~/<brain>/CLAUDE.md`, which holds a space. Outside home it
+    is an absolute forward-slash path, and a space in that path is warned about.
+    """
+    home = pathlib.Path(home) if home else pathlib.Path.home()
+    home = home.resolve()
+    target = (pathlib.Path(brain) / "CLAUDE.md").resolve()
+    try:
+        return "@~/" + target.relative_to(home).as_posix(), ""
+    except ValueError:
+        line = "@" + target.as_posix()
+        warn = ("the brain is outside your home folder, so the wiki imports it by absolute "
+                "path, and Claude Code may not follow a path with a space in it") if " " in line else ""
+        return line, warn
+
+
+def wiki_hook_entries(brain, wiki):
+    """The three hook groups this brain owns in the wiki's settings.local.json, by event.
+
+    Written as plain strings with forward slashes, quoted, so a path with spaces such as
+    `C:/Users/Daru Broodryk/wiki` stays valid JSON and valid shell.
+    """
+    return {
+        "SessionStart": {"hooks": [{"type": "command",
+                                    "command": f'python "{brain}/scripts/session_gate.py"'}]},
+        "PreToolUse": {"matcher": PII_MATCHER,
+                       "hooks": [{"type": "command",
+                                  "command": f'python "{brain}/scripts/pii_gate.py"'}]},
+        "Stop": {"hooks": [{"type": "command",
+                            "command": f'python "{brain}/scripts/review_output.py" '
+                                       f'--root "{wiki}" --gate'}]},
+    }
+
+
+def is_ours(hook):
+    return any(name in str(hook.get("command", "")) for name in OUR_SCRIPTS)
+
+
+def merge_hooks(settings, wanted):
+    """Replace this brain's hook entries in place and keep every other entry.
+
+    The first of ours in an event takes the place of the new group, so a second run
+    writes the same file. Groups that held only ours disappear; a group that also held
+    someone else's hook keeps that hook.
+    """
+    out = dict(settings)
+    hooks = dict(out.get("hooks") or {})
+    for event, group in wanted.items():
+        merged, placed = [], False
+        for existing in hooks.get(event) or []:
+            inner = existing.get("hooks") or []
+            if any(is_ours(h) for h in inner) and not placed:
+                merged.append(group)
+                placed = True
+            rest = [h for h in inner if not is_ours(h)]
+            if rest:
+                merged.append(dict(existing, hooks=rest))
+        if not placed:
+            merged.append(group)
+        hooks[event] = merged
+    out["hooks"] = hooks
+    return out
+
+
+def add_unique(settings, section, key, items):
+    """Add items to settings[section][key], keeping order and dropping duplicates."""
+    if not items:
+        return dict(settings)
+    out = dict(settings)
+    block = dict(out.get(section) or {})
+    current = list(dict.fromkeys(block.get(key) or []))
+    for item in items:
+        if item not in current:
+            current.append(item)
+    block[key] = current
+    out[section] = block
+    return out
+
+
+def absolute_read(wiki, rest):
+    """A `Read` rule for one path under the wiki, written as an absolute path.
+
+    Claude Code reads `//` as the filesystem root, so a POSIX path gets one more slash.
+    A drive-letter path gets `//` before the letter. The drive form is not verified.
+    """
+    prefix = "/" + wiki if wiki.startswith("/") else "//" + wiki
+    return f"Read({prefix}/{rest})"
+
+
+def wiki_deny_rules(wiki):
+    """The wiki's committed `Read(./x)` deny rules, rewritten as absolute rules."""
+    settings = load_json(wiki / ".claude" / "settings.json")
+    rules = (settings.get("permissions") or {}).get("deny") or []
+    out = []
+    for rule in rules:
+        match = DENY_READ.fullmatch(rule) if isinstance(rule, str) else None
+        if match:
+            out.append(absolute_read(wiki.as_posix(), match.group(1)))
+    return out
+
+
+def configured_wiki():
+    try:
+        return str(json.loads(brain_config().read_text(encoding="utf-8")).get("wiki") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def wiki_local(wiki):
+    return wiki / ".claude" / "settings.local.json"
+
+
+def brain_local():
+    return ROOT / ".claude" / "settings.local.json"
+
+
+def wiki_local_merged(wiki, existing):
+    out = merge_hooks(existing, wiki_hook_entries(ROOT.as_posix(), wiki.as_posix()))
+    return add_unique(out, "permissions", "additionalDirectories", [ROOT.as_posix()])
+
+
+def brain_local_merged(wiki, existing):
+    out = add_unique(existing, "permissions", "additionalDirectories", [wiki.as_posix()])
+    return add_unique(out, "permissions", "deny", wiki_deny_rules(wiki))
+
+
+def step_wiki_pointer(wiki):
+    have = configured_wiki()
+    return have == wiki.as_posix(), (
+        "points at " + (have or "(unset)"),
+        "write " + str(brain_config()) + " so this brain finds the wiki")
+
+
+def apply_wiki_pointer(wiki):
+    wiki_root.write_config(wiki, config=brain_config())
+    return True, "wiki = " + wiki.as_posix()
+
+
+def step_wiki_import(wiki):
+    line, warn = brain_import_line(ROOT)
+    path = wiki / "_local" / "brain.md"
+    have = path.read_text(encoding="utf-8") if path.is_file() else ""
+    done = have == line + "\n"
+    return done, (
+        "_local/brain.md imports this brain" if done else "_local/brain.md is missing or stale",
+        "write _local/brain.md as " + line + (". WARNING: " + warn if warn else ""))
+
+
+def apply_wiki_import(wiki):
+    line, warn = brain_import_line(ROOT)
+    path = wiki / "_local" / "brain.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(line + "\n", encoding="utf-8", newline="\n")
+    return True, line + (". WARNING: " + warn if warn else "")
+
+
+def step_wiki_hooks(wiki):
+    path = wiki_local(wiki)
+    try:
+        existing = load_json(path)
+    except ValueError as err:
+        return False, (str(path) + " is not valid JSON (" + str(err) + ")",
+                       "REPORT IT, and change nothing")
+    done = wiki_local_merged(wiki, existing) == existing
+    return done, (
+        "session, PII and review gates wired" if done else "gates missing or stale",
+        "write the three gate hooks and this brain's extra directory into " + str(path))
+
+
+def apply_wiki_hooks(wiki):
+    path = wiki_local(wiki)
+    try:
+        existing = load_json(path)
+    except ValueError as err:
+        return False, str(path) + " is not valid JSON (" + str(err) + "). Left untouched."
+    merged = wiki_local_merged(wiki, existing)
+    if merged == existing:
+        return True, "already wired"
+    backup = write_json(path, merged)
+    return True, "wired" + (", backup at " + backup if backup else "")
+
+
+def step_brain_for_wiki(wiki):
+    path = brain_local()
+    try:
+        existing = load_json(path)
+        done = brain_local_merged(wiki, existing) == existing
+    except ValueError as err:
+        return False, (str(path) + " or the wiki's settings is not valid JSON (" + str(err) + ")",
+                       "REPORT IT, and change nothing")
+    return done, (
+        "brain allows the wiki and denies its files by absolute path" if done
+        else "brain is missing the wiki's directory or deny rules",
+        "write the wiki as an extra directory and its Read rules as absolute deny rules into "
+        + str(path))
+
+
+def apply_brain_for_wiki(wiki):
+    path = brain_local()
+    try:
+        existing = load_json(path)
+        merged = brain_local_merged(wiki, existing)
+    except ValueError as err:
+        return False, str(path) + " or the wiki's settings is not valid JSON (" + str(err) + \
+            "). Left untouched."
+    if merged == existing:
+        return True, "already wired"
+    backup = write_json(path, merged)
+    return True, "wired" + (", backup at " + backup if backup else "")
+
+
+def git_in(wiki, *args):
+    return subprocess.run(["git", "-C", str(wiki)] + list(args),
+                          capture_output=True, text=True)
+
+
+def git_problems(wiki):
+    """What is still missing in the wiki clone, as words. Empty when all of it is done."""
+    if git_in(wiki, "rev-parse", "--git-dir").returncode != 0:
+        return ["not a git clone"]
+    problems = []
+    if git_in(wiki, "config", "--get", "brain.root").stdout.strip() != ROOT.as_posix():
+        problems.append("brain.root")
+    if git_in(wiki, "config", "--get", "core.hooksPath").stdout.strip() != HOOKS_PATH:
+        problems.append("core.hooksPath")
+    for name in WIKI_HOOK_NAMES:
+        rel = HOOKS_PATH + "/" + name
+        if not git_in(wiki, "ls-files", "-s", "--", rel).stdout.startswith("100755"):
+            problems.append(rel + " not executable in git")
+        if os.name != "nt" and not os.access(wiki / HOOKS_PATH / name, os.X_OK):
+            problems.append(rel + " not executable on disk")
+    return problems
+
+
+def step_wiki_git(wiki):
+    problems = git_problems(wiki)
+    return not problems, (
+        "in order" if not problems else "missing: " + ", ".join(problems),
+        "set brain.root and core.hooksPath, mark the hooks executable in git and on disk")
+
+
+def apply_wiki_git(wiki):
+    if git_in(wiki, "rev-parse", "--git-dir").returncode != 0:
+        return False, str(wiki) + " is not a git clone; clone DataWithDaru/wiki there first"
+    failed = []
+    for key, value in (("brain.root", ROOT.as_posix()), ("core.hooksPath", HOOKS_PATH)):
+        if git_in(wiki, "config", key, value).returncode != 0:
+            failed.append("git config " + key)
+    for name in WIKI_HOOK_NAMES:
+        path = wiki / HOOKS_PATH / name
+        if not path.is_file():
+            failed.append(name + " is missing")
+            continue
+        r = git_in(wiki, "update-index", "--chmod=+x", "--", HOOKS_PATH + "/" + name)
+        if r.returncode != 0:
+            failed.append(name + " (" + tail(r) + ")")
+        if os.name != "nt":
+            path.chmod(path.stat().st_mode | 0o111)
+    return not failed, ("hooks wired and executable" if not failed
+                        else "FAILED: " + ", ".join(failed))
+
+
+# Each step: (label, state(wiki), apply(wiki)). The label is shown in the report.
+WIKI_STEPS = (
+    ("wiki pointer", step_wiki_pointer, apply_wiki_pointer),
+    ("wiki import", step_wiki_import, apply_wiki_import),
+    ("wiki hooks", step_wiki_hooks, apply_wiki_hooks),
+    ("brain for wiki", step_brain_for_wiki, apply_brain_for_wiki),
+    ("wiki git", step_wiki_git, apply_wiki_git),
+)
+
+
+def wiki_rows(wiki):
+    """Report rows for the wiki steps, shaped like plan() so report() and apply can use them."""
+    rows = []
+    for label, state, apply_step in WIKI_STEPS:
+        done, (detail, what) = state(wiki)
+        rows.append((label, done, detail, what, lambda w=wiki, f=apply_step: f(w)))
+    return rows
+
+
 # Order matters: plugins before the retired ones are removed, so a replacement
 # is already there when the plugin it replaces goes.
 #
@@ -1197,6 +1543,10 @@ def main(argv):
     ap.add_argument("--force", action="store_true",
                     help="take the conflicts this vault owns: move old skill copies out "
                          "of ~/.claude/skills/, repoint core.hooksPath, turn hooks back on")
+    ap.add_argument("--wiki", metavar="PATH",
+                    help="the wiki clone to wire to this brain (default: the one wiki_root finds)")
+    ap.add_argument("--wiki-only", action="store_true",
+                    help="run only the wiki steps, never a global one")
     args = ap.parse_args(argv)
 
     if args.detect:
@@ -1218,18 +1568,31 @@ def main(argv):
         print("still blank: " + ", ".join(blank) if blank else "every field filled.")
         return 0
 
-    rows = plan()
-    print("vault install:")
+    wiki = find_wiki(args.wiki)
+    if args.wiki and wiki is None:
+        print("not a wiki folder: " + args.wiki + " (it holds no index.md)")
+        return 2
+    if args.wiki_only and wiki is None:
+        print("wiki: not configured. Pass --wiki PATH, the wiki clone that holds index.md.")
+        return 2
+    print("wiki: " + (str(wiki) if wiki else "not configured"))
+
+    if args.wiki_only:
+        rows = wiki_rows(wiki)
+        print("wiki install:")
+    else:
+        rows = plan() + (wiki_rows(wiki) if wiki else [])
+        print("vault install:")
     report(rows)
     pending = [r for r in rows if not r[1]]
 
-    clashes = machine_conflicts()
+    clashes = [] if args.wiki_only else machine_conflicts()
     if clashes:
         print("\nexisting setup on this machine:")
         for line in conflict_report(clashes):
             print("  " + line)
 
-    gaps = optional_gaps()
+    gaps = [] if args.wiki_only else optional_gaps()
     if gaps:
         print("\noptional tools missing (some skills or reports need them):")
         for line in optional_report(gaps):
@@ -1247,6 +1610,7 @@ def main(argv):
               "there. Nothing is applied to them without --force. Every file it replaces is\n"
               "backed up beside itself first.")
 
+    all_ok = True
     if not pending:
         print("\nnothing to do.")
     else:
@@ -1261,10 +1625,14 @@ def main(argv):
             ok, detail = apply_step(args.force) if label in FORCED else apply_step()
             head = detail.splitlines()[0] if detail else ""
             print("  " + ("done" if ok else "FAILED") + "  " + label + ": " + head)
+            all_ok = all_ok and ok
             restart = restart or (ok and label in NEEDS_RESTART)
         if restart:
             print("\nRestart Claude Code. Plugins, hooks and settings changed above load "
                   "only in a new session.")
+
+    if args.wiki_only:
+        return 0 if all_ok else 1
 
     print("\ngates:")
     gate = run(sys.executable, str(ROOT / "scripts" / "session_gate.py"))

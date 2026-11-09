@@ -75,7 +75,13 @@ configuration rather than a service. Most of the risk sits in two places: a merg
 that damages configuration the vault does not own, and a step that reports
 success without binding anything.
 
-Unit level, already automated. `scripts/test_install_vault.py`, 178 cases, covers
+Unit level, already automated. `scripts/test_install_vault.py`, 224 cases, covers
+the wiki steps too: the pointer, the `_local/brain.md` import (`~/` form under home,
+absolute with a warning otherwise), the two gate merges (a second run changes
+nothing, a hand-added hook or deny rule survives, a malformed file is left alone),
+the wiki's git keys and executable hooks, and the `--wiki-only` plan. It runs on a
+temporary brain and wiki, so no case writes the real `_local/` or settings files.
+It also covers
 the settings merge (other hooks and settings survive, a second run adds no
 duplicate entry, the old file is backed up, malformed JSON is refused and left
 byte-for-byte), the detection filter (`safe()` drops a token or an overlong
@@ -107,7 +113,7 @@ a real Claude Code session, which is exactly what the unit tests stub out.
 
 `python scripts/verify_install.py` runs these. It checks the prerequisites (git,
 Python, Claude Code on PATH, long paths, `gh` login, git identity), cases 5 to 9
-and 12, and the automated suites from §3, then writes
+and 12, the automated suites from §3, and the wiki checks in case 38, then writes
 `raw/output/install-report-<timestamp>.md` with four sections: Failed (each with
 its fix), Skipped, Passed, and Still needs you, which lists cases 7b, 11, 13 and
 14, Obsidian, blank binding fields and credentials as a checklist. Case 12 runs
@@ -165,6 +171,10 @@ Failure and edge cases, all of which must fail safely rather than loudly:
 | 32 | No `uv`, no PyYAML, or on Windows no tzdata | `--check` | Each is listed under "optional tools missing" with its install command, and none of them changes the exit code |
 | 33 | skills on GitHub is ahead of the local clone, or an installed plugin is older than the clone offers | `--yes` | `plugin updates` pulls the clone, runs `claude plugin update` for each outdated skills plugin, and says to restart Claude Code |
 | 34 | flightdeck or next-steps not installed | `--yes` | Both install with the other expected plugins |
+| 35 | Wiki clone at `../wiki`, nothing wired | `--wiki-only --check` | Five `wiki` steps `PENDING`, `wiki: <path>` printed, exit code 1, no global step listed |
+| 36 | Wiki wired by 35 | `--wiki-only --yes` again | "nothing to do", no file rewritten, no backup made; hand-added hooks and deny rules survive |
+| 37 | No wiki found (no `--wiki`, no `BRAIN_WIKI`, no `../wiki`) | `--wiki-only --check` | `wiki: not configured`, exit code 2. `verify_install.py` SKIPs the wiki checks with "wiki not configured" |
+| 38 | Wiki wired, `verify_install.py` run | The wiki checks | `check_maps.py` and `check_frontmatter.py` run in the wiki, and `_local/brain.md` imports this brain's `CLAUDE.md` |
 
 ## 5. Coverage gaps, stated plainly
 

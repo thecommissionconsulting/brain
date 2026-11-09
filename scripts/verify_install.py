@@ -189,10 +189,49 @@ SUITES = (
     ("test_install_vault.py", "installer unit tests"),
     ("test_review_output.py", "Stop gate tests"),
     ("test_pii_gate.py", "PreToolUse PII gate tests"),
-    ("check_maps.py", "router matches reality"),
     ("check_schema_sync.py", "schema in sync"),
+)
+
+# The two wiki checks read the wiki's own files, so they run with the wiki as cwd.
+# check_maps.py and check_frontmatter.py look at ./ and nothing else.
+WIKI_SUITES = (
+    ("check_maps.py", "router matches reality"),
     ("check_frontmatter.py", "every note well formed"),
 )
+WIKI_IMPORT = "wiki imports this brain's CLAUDE.md"
+WIKI_FIX = "python scripts/install_vault.py --wiki-only --yes --wiki <path to the wiki clone>"
+
+
+def brain_import_check(wiki):
+    """(PASS or FAIL, detail): the wiki's _local/brain.md imports this brain's CLAUDE.md."""
+    path = wiki / "_local" / "brain.md"
+    if not path.is_file():
+        return "FAIL", "_local/brain.md is missing in the wiki"
+    lines = [l.strip() for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    line = next((l for l in lines if l.startswith("@")), "")
+    if not line:
+        return "FAIL", "_local/brain.md holds no @ import"
+    target = pathlib.Path(os.path.expanduser(line[1:])).resolve()
+    if target == (ROOT / "CLAUDE.md").resolve():
+        return "PASS", line
+    return "FAIL", "_local/brain.md imports " + line + ", not this brain's CLAUDE.md"
+
+
+def wiki_suites(wiki):
+    """The wiki checks, run in the wiki. With no wiki each one is SKIPPED with the reason."""
+    if wiki is None:
+        for script, name in WIKI_SUITES:
+            record("wiki", name + " (" + script + ")", "SKIP", "wiki not configured",
+                   "python scripts/install_vault.py --wiki <path to the wiki clone>")
+        record("wiki", WIKI_IMPORT, "SKIP", "wiki not configured", WIKI_FIX)
+        return
+    for script, name in WIKI_SUITES:
+        r = run(sys.executable, str(SCRIPTS / script), cwd=wiki)
+        record("wiki", name + " (" + script + ")", "PASS" if r.returncode == 0 else "FAIL",
+               last_line(r), "run python " + str(SCRIPTS / script) + " in " + str(wiki)
+               + " and read its errors")
+    status, detail = brain_import_check(wiki)
+    record("wiki", WIKI_IMPORT, status, detail, WIKI_FIX)
 
 
 def suites():
@@ -285,6 +324,7 @@ def main():
     prerequisites()
     acceptance()
     suites()
+    wiki_suites(iv.find_wiki())
 
     for case, name, status, detail, _ in results:
         print(f"  {status:<5} {name}: {detail}")
