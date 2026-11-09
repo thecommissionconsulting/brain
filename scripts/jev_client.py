@@ -1,0 +1,142 @@
+"""The one module that talks to Jev, run from the repo root or imported by a hook.
+
+Policy: _local/jev-policy.json, machine-local and gitignored. A missing or malformed
+file means mode "off": nothing is sent. Modes: "off" sends nothing, "meta" sends text
+Claude wrote, "full" also sends wiki/ content. wiki/clients/ needs "full" and
+"client_approved": true.
+
+Every call passes the PII scan (patterns.scan) first. The API key comes only from the
+TYPESAFE_API_KEY environment variable and is never printed, logged or written to a file.
+send() enforces a total deadline. Decisions are logged with a SHA-256 of the sent text,
+never the text itself. Logging never raises.
+"""
+import datetime
+import hashlib
+import json
+import pathlib
+import threading
+import urllib.error
+import urllib.request
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+MODEL = "jev-latest"
+POLICY_PATH = ROOT / "_local" / "jev-policy.json"
+LOG_DIR = ROOT / "_local" / "jev-log"
+MODES = {
+    "off": set(),
+    "meta": {"meta"},
+    "full": {"meta", "wiki", "client"},
+}
+
+
+def load_policy(path=POLICY_PATH):
+    """{"mode": ..., "client_approved": bool}. Any read or parse problem gives mode "off"."""
+    off = {"mode": "off", "client_approved": False}
+    try:
+        data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return off
+    if not isinstance(data, dict) or data.get("mode") not in MODES:
+        return off
+    return {"mode": data["mode"], "client_approved": data.get("client_approved") is True}
+
+
+def may_send(text, zone, policy, scan=None):
+    """(allowed, reason). Reasons: ok, empty, policy off, zone not allowed,
+    client not approved, personal data, PII scan unavailable."""
+    if policy.get("mode") not in MODES or not MODES[policy["mode"]]:
+        return False, "policy off"
+    if not text.strip():
+        return False, "empty"
+    if zone not in MODES[policy["mode"]]:
+        return False, "zone not allowed"
+    if zone == "client" and policy.get("client_approved") is not True:
+        return False, "client not approved"
+    try:
+        if scan is None:
+            from patterns import scan
+        hits = scan(text)
+    except Exception:
+        return False, "PII scan unavailable"
+    if hits:
+        return False, "personal data"
+    return True, "ok"
+
+
+def post_json(payload, key, timeout, endpoint):
+    """POST the payload to Jev and return the parsed JSON. The key is never in an error."""
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def send(payload, env, timeout=4, call=None):
+    """Send the payload with a total deadline of `timeout` seconds.
+
+    Raises KeyError naming only TYPESAFE_API_KEY when no key is set, and TimeoutError
+    when the call has not returned in time. The call runs in a daemon thread, so a
+    stalled socket cannot hold the hook past its deadline.
+    """
+    key = (env.get("TYPESAFE_API_KEY") or "").strip()
+    if not key:
+        raise KeyError("TYPESAFE_API_KEY")
+    endpoint = (env.get("JEV_ENDPOINT") or "").strip() or DEFAULT_ENDPOINT
+    call = call or post_json
+    box = {}
+
+    def worker():
+        try:
+            box["ok"] = call(payload, key, timeout=timeout, endpoint=endpoint)
+        except BaseException as err:
+            box["err"] = err
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise TimeoutError("Jev did not answer within the time limit")
+    if "err" in box:
+        raise box["err"]
+    return box["ok"]
+
+
+def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR):
+    """Append one JSON line to log_dir/YYYY-MM-DD.jsonl. Never raises; never stores the text."""
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        top = {}
+        for question, answer in answers.items():
+            probs = answer.get("probabilities") or {}
+            top[question] = max((float(v) for v in probs.values()), default=None)
+        record = {
+            "time": now.isoformat(timespec="seconds"),
+            "use": use,
+            "questions": sorted(answers),
+            "choices": {q: a.get("choice") for q, a in answers.items()},
+            "confidences": {q: a.get("confidence") for q, a in answers.items()},
+            "top_probability": top,
+            "sha256": hashlib.sha256(sent_text.encode("utf-8")).hexdigest(),
+            "cut": bool(cut),
+        }
+        directory = pathlib.Path(log_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        with (directory / (now.strftime("%Y-%m-%d") + ".jsonl")).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
+
+
+def error_label(err):
+    """The error type and, for HTTP errors, the status. Never the key, the message or the text."""
+    status = getattr(err, "code", None)
+    return type(err).__name__ + (" " + str(status) if status is not None else "")
