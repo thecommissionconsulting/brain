@@ -148,7 +148,6 @@ def routing_block(folder: Path, notes: list[Path], subfolders: list[Path],
 
 def main() -> int:
     global VAULT, WIKI, INDEX
-    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--root", metavar="PATH", help="work on this wiki folder")
@@ -157,6 +156,8 @@ def main() -> int:
         VAULT = wiki_root.require_wiki(Path(args.root).expanduser().resolve())
         WIKI = VAULT / "wiki"
         INDEX = VAULT / "index.md"
+    else:
+        wiki_root.require_wiki(VAULT)
 
     folders = sorted([d for d in WIKI.rglob("*") if d.is_dir()] + [WIKI])
     stems: dict[Path, str] = {}
