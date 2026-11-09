@@ -48,11 +48,12 @@ class Vault:
 def case(name, got, want, state):
     ok = got == want
     state[0] += not ok
+    state[1] += 1
     print(f"  {'ok  ' if ok else 'FAIL'}  {name:42} want {str(want):5} got {got}")
 
 
 def main():
-    fails = [0]
+    fails = [0, 0]  # failures, cases run
     with tempfile.TemporaryDirectory() as tmp:
         v = Vault(tmp)
         case("empty raw/output passes", v.gate(), "pass", fails)
@@ -81,8 +82,33 @@ def main():
         case("dotfile is not an artifact", hidden.gate(), "pass", fails)
         shutil.rmtree(hidden.root, ignore_errors=True)
 
-    total = 10
-    print(f"\ntest_review_output: {total - fails[0]} passed, {fails[0]} failed.")
+        # --root points the same script at another folder; that folder gets its own ledger.
+        with tempfile.TemporaryDirectory() as other_tmp:
+            elsewhere = Vault(other_tmp)
+            elsewhere.artifact("x.md")
+            elsewhere.artifact("y.md")
+            listed = v.run("--root", str(elsewhere.root), "--list").stdout
+            case("--root lists that folder's artifacts",
+                 "raw/output/x.md" in listed and "raw/output/y.md" in listed, True, fails)
+
+            payload = json.dumps({"session_id": "r1", "stop_hook_active": False})
+            gate_out = v.run("--root", str(elsewhere.root), "--gate", stdin=payload).stdout
+            reason = json.loads(gate_out)["reason"] if gate_out.strip() else ""
+            case("gate names the script and --root",
+                 f'--root "{elsewhere.root.as_posix()}"' in reason
+                 and f'"{v.root.joinpath("scripts", "review_output.py").as_posix()}"' in reason,
+                 True, fails)
+
+            v.run("--root", str(elsewhere.root), "--keep", "raw/output/x.md")
+            ledger = json.loads((elsewhere.root / "_local" / "output-triage.json").read_text(encoding="utf-8"))
+            case("--root --keep records only that file", sorted(ledger), ["raw/output/x.md"], fails)
+            after = v.run("--root", str(elsewhere.root), "--list").stdout
+            case("kept file leaves the list, the other stays",
+                 "x.md" not in after and "y.md" in after, True, fails)
+            own = json.loads((v.root / "_local" / "output-triage.json").read_text(encoding="utf-8"))
+            case("default vault ledger untouched", "raw/output/x.md" in own, False, fails)
+
+    print(f"\ntest_review_output: {fails[1] - fails[0]} passed, {fails[0]} failed.")
     return 1 if fails[0] else 0
 
 

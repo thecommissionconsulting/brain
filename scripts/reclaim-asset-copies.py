@@ -24,7 +24,10 @@ import os
 import sys
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 
 # The migration script owns the index format; load it rather than restate it.
 _spec = importlib.util.spec_from_file_location(
@@ -68,6 +71,7 @@ def reclaimable(root: Path, source: Path, strip: Path):
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=SOURCE_DEFAULT)
     parser.add_argument("--raw", type=Path, default=RAW_DEFAULT)

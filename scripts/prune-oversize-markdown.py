@@ -23,7 +23,10 @@ import os
 import sys
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 
 _spec = importlib.util.spec_from_file_location(
     "onedrive_to_vault", Path(__file__).resolve().parent / "onedrive-to-vault.py"
@@ -45,6 +48,7 @@ def human(size: float) -> str:
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw", type=Path, default=RAW_DEFAULT)
     parser.add_argument("--manifest", type=Path, default=MANIFEST_DEFAULT)

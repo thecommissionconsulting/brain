@@ -27,7 +27,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 CLIENTS = VAULT / "wiki" / "clients"
 IMPORTED_ROOT = CLIENTS / "client-documentation"
 ROUTING_DEFAULT = VAULT / "_local" / "vault-routing.jsonl"
@@ -47,6 +50,7 @@ def slug(text: str) -> str:
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--routing", type=Path, default=ROUTING_DEFAULT)
     parser.add_argument("--mapping", type=Path, default=MAPPING_DEFAULT)

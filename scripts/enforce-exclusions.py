@@ -23,7 +23,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 SCRIPTS = Path(__file__).resolve().parent
 
 _spec = importlib.util.spec_from_file_location("exclusions", SCRIPTS / "exclusions.py")
@@ -42,6 +45,7 @@ def library_relative(src: str) -> str:
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--routing", type=Path, default=ROUTING_DEFAULT)
     parser.add_argument("--apply", action="store_true", help="Delete breaches (default is audit)")

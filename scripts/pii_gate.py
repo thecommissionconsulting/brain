@@ -35,8 +35,9 @@ import pathlib
 import re
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-DENYLIST = ROOT / "_ai" / "pii-denylist.txt"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
 DISTINCT_EXTERNAL_LIMIT = 10
 INTERNAL_DOMAIN = "@example.nz"
 
@@ -63,10 +64,15 @@ READS_A_FILE = re.compile(
 
 
 def load_denylist():
-    if not DENYLIST.exists():
+    """Entries from the wiki's denylist. No wiki on this machine: an empty list."""
+    root = wiki_root.wiki_root()
+    if root is None:
+        return []
+    denylist = root / "_ai" / "pii-denylist.txt"
+    if not denylist.exists():
         return []
     out = []
-    for line in DENYLIST.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in denylist.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
             out.append(line.rstrip("/"))
@@ -74,9 +80,12 @@ def load_denylist():
 
 
 def rel(p):
-    """Repo-relative, forward-slash. Anything outside the repo is not ours to judge."""
+    """Wiki-relative, forward-slash. Anything outside the wiki is not ours to judge."""
+    root = wiki_root.wiki_root()
+    if root is None:
+        return None
     try:
-        return pathlib.Path(p).resolve().relative_to(ROOT).as_posix()
+        return pathlib.Path(p).resolve().relative_to(root).as_posix()
     except (ValueError, OSError):
         return None
 

@@ -37,7 +37,9 @@ import pathlib
 import sys
 import time
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+SCRIPT = pathlib.Path(__file__).resolve()
+ROOT = SCRIPT.parent.parent
+ROOT_ARG = ""  # set by --root, repeated in the gate message so the command finds the same folder
 OUTPUT = ROOT / "raw" / "output"
 STATE = ROOT / "_local"
 LEDGER = STATE / "output-triage.json"
@@ -47,7 +49,7 @@ MARKER_KEEP = 20
 REVIEW = """Untriaged artifacts are sitting in raw/output/ (R-49). Before this
 session ends, review them with the user:
 
-  python scripts/review_output.py --list
+  {base} --list
 
 Show one table covering every artifact: path, size, when it was written, what it
 is, and a proposed destination under wiki/ with a `type:` for the ones worth
@@ -59,12 +61,23 @@ Then act on their decisions:
   promote  convert to a note from _ai/templates/ with an `Answers:` block, put it
            at the approved path, and update index.md. Ask before `git mv` or any
            git operation.
-  keep     python scripts/review_output.py --keep <path>   (silences it until the
+  keep     {base} --keep <path>   (silences it until the
            file changes)
   delete   remove it, once the user has said so for that specific file.
 
 If they would rather not do this now, say so plainly and stop. This gate fires
 once per session and will not ask again."""
+
+
+def use_root(root, custom=True):
+    """Point the state at another folder (--root). The default is this script's own vault."""
+    global ROOT, ROOT_ARG, OUTPUT, STATE, LEDGER, MARKERS
+    ROOT = root
+    ROOT_ARG = f' --root "{root.as_posix()}"' if custom else ""
+    OUTPUT = ROOT / "raw" / "output"
+    STATE = ROOT / "_local"
+    LEDGER = STATE / "output-triage.json"
+    MARKERS = STATE / "output-triage"
 
 
 def ledger():
@@ -156,10 +169,21 @@ def gate():
     listing = "\n".join(f"  {rel}" for rel, _ in pending[:20])
     if len(pending) > 20:
         listing += f"\n  ... and {len(pending) - 20} more"
-    print(json.dumps({"decision": "block", "reason": f"{REVIEW}\n\n{listing}"}))
+    base = f'python "{SCRIPT.as_posix()}"{ROOT_ARG}'
+    text = REVIEW.format(base=base)
+    print(json.dumps({"decision": "block", "reason": f"{text}\n\n{listing}"}))
 
 
 def main(argv):
+    argv = list(argv)
+    if "--root" in argv:
+        # Parsed before --keep, so --keep never takes --root's value as a path.
+        i = argv.index("--root")
+        if i + 1 >= len(argv):
+            print("review_output: --root needs a folder", file=sys.stderr)
+            return 2
+        use_root(pathlib.Path(argv[i + 1]).expanduser().resolve())
+        del argv[i:i + 2]
     if "--gate" in argv:
         try:
             gate()

@@ -32,7 +32,10 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 WIKI = VAULT / "wiki"
 FLATTEN_MAP = VAULT / "_local" / "client-flatten.jsonl"
 ROUTING = VAULT / "_local" / "vault-routing.jsonl"
@@ -70,6 +73,7 @@ def yaml_escape(value: str) -> str:
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
