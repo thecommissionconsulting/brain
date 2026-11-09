@@ -1274,9 +1274,14 @@ def absolute_read(wiki, rest):
     """A `Read` rule for one path under the wiki, written as an absolute path.
 
     Claude Code reads `//` as the filesystem root, so a POSIX path gets one more slash.
-    A drive-letter path gets `//` before the letter. The drive form is not verified.
+    On Windows it matches paths in POSIX form, `C:/x` as `/c/x`, so a drive-letter path
+    becomes `//c/x`.
     """
-    prefix = "/" + wiki if wiki.startswith("/") else "//" + wiki
+    drive = re.match(r"^([A-Za-z]):/(.*)$", wiki)
+    if drive:
+        prefix = "//" + drive.group(1).lower() + "/" + drive.group(2)
+    else:
+        prefix = "/" + wiki if wiki.startswith("/") else "//" + wiki
     return f"Read({prefix}/{rest})"
 
 

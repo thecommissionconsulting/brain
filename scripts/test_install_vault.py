@@ -194,7 +194,7 @@ def wiki_cases():
              in entries["SessionStart"]["hooks"][0]["command"], True)
         case("a drive-letter deny rule is absolute",
              iv.absolute_read(win_wiki, "raw/**"),
-             "Read(//C:/Users/Daru Broodryk/wiki/raw/**)")
+             "Read(//c/Users/Daru Broodryk/wiki/raw/**)")
         case("a POSIX deny rule is absolute",
              iv.absolute_read("/home/x/wiki", "raw/**"), "Read(//home/x/wiki/raw/**)")
         with tempfile.TemporaryDirectory() as tmp:
