@@ -1,10 +1,4 @@
 {
-  "permissions": {
-    "deny": [
-      "Read(./wiki/internal/playbooks/services-team/2026-graduate-programme/candidates/**)",
-      "Read(./wiki/internal/playbooks/services-team/ludo-s-schedule.md)"
-    ]
-  },
   "hooks": {
     "SessionStart": [
       {

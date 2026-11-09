@@ -194,4 +194,4 @@ Windows is the only platform this has run on so far. The `gh`, Snowflake, dbt an
 `gws` detection returned empty there because those tools were not configured, so
 those four branches are unproven against real files.
 
-Related: [[setup]] · [[rules]] · [[retrieval]]
+Related: [[setup]] · [[rules]] · `_ai/retrieval.md` in the wiki

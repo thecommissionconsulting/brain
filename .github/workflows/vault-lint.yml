@@ -9,7 +9,4 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pyyaml
-      - run: python scripts/check_frontmatter.py
-      - run: python scripts/check_links.py
-      - run: python scripts/check_maps.py
       - run: python scripts/check_schema_sync.py

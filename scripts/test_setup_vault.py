@@ -103,8 +103,31 @@ def test_plan_clones_the_vault_on_a_bare_machine():
     assert "rag" not in joined
 
 
+def test_plan_clones_the_wiki_next_to_the_brain():
+    a = sv.ask(_io("C:/work", "Ada", "ada@example.nz", "n"), sv.Detected())
+    steps = sv.plan(a, sv.Detected())
+    assert any(s.startswith("clone ") and s.endswith(str(Path("C:/work") / sv.WIKI_DIR))
+               for s in steps), steps
+    assert any("register" in s and s.endswith(sv.WIKI_DIR + " as an Obsidian vault")
+               for s in steps), steps
+
+
+def test_plan_clones_only_the_wiki_when_the_brain_is_already_there(tmp_path):
+    (tmp_path / sv.VAULT_DIR / ".git").mkdir(parents=True)
+    a = sv.ask(_io(str(tmp_path), "Ada", "ada@example.nz", "n"), sv.Detected())
+    clones = [s for s in sv.plan(a, sv.Detected()) if s.startswith("clone ")]
+    assert len(clones) == 1 and sv.WIKI_REPO in clones[0], clones
+
+
+def test_installer_command_points_the_brain_at_the_wiki(tmp_path):
+    cmd = sv.installer_command(tmp_path)
+    assert cmd.startswith("python ") and "install_vault.py" in cmd
+    assert cmd.endswith(f"--wiki {tmp_path / sv.WIKI_DIR}")
+
+
 def test_plan_skips_a_repo_that_is_already_cloned(tmp_path):
     (tmp_path / "vault" / ".git").mkdir(parents=True)
+    (tmp_path / "wiki" / ".git").mkdir(parents=True)
     a = sv.ask(_io(str(tmp_path), "Ada", "ada@example.nz", "n"), sv.Detected())
     steps = sv.plan(a, sv.Detected())
     assert not any("clone" in s for s in steps)
@@ -112,6 +135,7 @@ def test_plan_skips_a_repo_that_is_already_cloned(tmp_path):
 
 def test_plan_is_empty_of_actions_on_a_fully_configured_machine(tmp_path):
     (tmp_path / "vault" / ".git").mkdir(parents=True)
+    (tmp_path / "wiki" / ".git").mkdir(parents=True)
     detected = sv.Detected(
         obsidian_exe=Path("C:/Obsidian.exe"),
         git_name="Ada", git_email="ada@example.nz",
@@ -232,7 +256,7 @@ def test_linux_reports_rather_than_installing():
 def test_plan_does_not_offer_to_register_an_already_known_vault(tmp_path):
     """detect() runs before the workspace is known, so main() must re-check."""
     reg = tmp_path / "obsidian.json"
-    vault = tmp_path / "ws" / sv.VAULT_DIR
+    vault = tmp_path / "ws" / sv.WIKI_DIR
     reg.write_text(json.dumps({"vaults": {"a1": {"path": str(vault), "ts": 1}}}),
                    encoding="utf-8")
     assert sv.vault_is_registered(reg, vault) is True
