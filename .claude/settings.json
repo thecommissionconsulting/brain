@@ -35,6 +35,16 @@
             "statusMessage": "Checking the PII gate..."
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/wiki_edit_gate.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },

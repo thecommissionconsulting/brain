@@ -31,7 +31,7 @@ machine). Writing style is §Writing below.
 | **MANUAL** | Written down, nothing checks it. Held by review and habit only. |
 
 A MANUAL rule is not a weak rule, it is an *unguarded* one. Promoting rules up this scale
-is how the vault gets more reliable over time. Today: 16 HARD, 8 WARN, 29 MANUAL.
+is how the vault gets more reliable over time. Today: 17 HARD, 10 WARN, 30 MANUAL (57 rows, R-43, R-44 and R-57 retired and counted as MANUAL).
 
 ## The register
 
@@ -90,6 +90,10 @@ is how the vault gets more reliable over time. Today: 16 HARD, 8 WARN, 29 MANUAL
 | R-53 | Reply | Every Task and Build has an ETA; an overrun stops work with a reason and a new estimate | §Response contract | — | MANUAL | ok |
 | R-54 | Reply | Replies lead with the point; a Question gets about five lines | §Response contract | — | MANUAL | ok |
 | R-55 | Reply | A Build runs the Build flow: Jev picks the superpowers skill, Elephant drafts, a Goldfish subagent reviews, the owner approves | §Response contract | `scripts/jev_route.py` picks the skill; the rest is unguarded | MANUAL | ok |
+| R-56 | Model | Jev gets metadata only: mode off or meta, endpoint fixed; no note text leaves the machine. Named scripts may write `_local/`; the model may not | §Permissions | `scripts/jev_client.py` `may_send`. `scripts/jev_route.py` still posts on its own until Part A Task 2, so WARN until then | WARN (local) | ok |
+| R-57 | Model | Retired. | — | — | MANUAL | retired |
+| R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, wired in `.claude/settings.json`). Blocks a distinctive name; warns on a single-word folder name | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
+| R-59 | Model | An edit to the wiki holds no instructions aimed at an AI model | §Permissions | `scripts/wiki_edit_gate.py`, pattern `AI_TEXT`. Warns only | WARN (local) | ok |
 
 Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
@@ -219,6 +223,16 @@ What the model may do in this vault.
 - Never write into `raw/`, `_local/`, `assets/`, `.confluence-private/` or `.git/`. The one
   exception is `raw/output/`, where generated artifacts go (R-48). Nothing else under `raw/`
   is writable, and a file there is never committed.
+- The one `_local/` exception is for named scripts under `scripts/`, which may write their
+  own state there (the wiki edit gate's once-a-day marker, R-56). The model may not write
+  there.
+- Never send note text off the machine. Jev gets metadata only, and its endpoint is fixed (R-56).
+- Never edit a note under `wiki/clients/<client>/` so that it names another client. The
+  wiki edit gate blocks a distinctive name and warns on a single-word folder name (R-58).
+  The gate checks only file writes through Write, Edit and MultiEdit; a Bash write is not
+  checked.
+- Never put an instruction aimed at an AI model into a wiki note. The wiki edit gate
+  warns on it (R-59).
 - Never copy content out of `.confluence-private/` into a committed note.
 - Never put a credential, token, API key or password in any file in this repo. Credentials
   live in the tools' own config, never here. See [[setup]] §4.

@@ -1150,8 +1150,10 @@ WIKI_HOOK_NAMES = ("pre-commit", "commit-msg", "pre-push")
 
 # An entry is ours when its command runs one of these scripts. Ours are replaced;
 # anything else in the same file, including a hook the owner added by hand, is kept.
-OUR_SCRIPTS = ("session_gate.py", "pii_gate.py", "review_output.py")
+OUR_SCRIPTS = ("session_gate.py", "pii_gate.py", "review_output.py", "wiki_edit_gate.py")
 PII_MATCHER = "Read|Grep|Glob|Bash|Write|Edit|NotebookEdit"
+EDIT_MATCHER = "Write|Edit|MultiEdit"
+ABSOLUTE_READ = re.compile(r"Read\(//.+\)")
 DENY_READ = re.compile(r"Read\(\./(.+)\)")
 
 
@@ -1208,20 +1210,26 @@ def brain_import_line(brain, home=None):
 
 
 def wiki_hook_entries(brain, wiki):
-    """The three hook groups this brain owns in the wiki's settings.local.json, by event.
+    """The hook groups this brain owns in the wiki's settings.local.json, by event.
 
-    Written as plain strings with forward slashes, quoted, so a path with spaces such as
-    `C:/Users/Daru Broodryk/wiki` stays valid JSON and valid shell.
+    Each event maps to a list of groups. Written as plain strings with forward slashes,
+    quoted, so a path with spaces such as `C:/Users/Daru Broodryk/wiki` stays valid JSON
+    and valid shell.
     """
     return {
-        "SessionStart": {"hooks": [{"type": "command",
-                                    "command": f'python "{brain}/scripts/session_gate.py"'}]},
-        "PreToolUse": {"matcher": PII_MATCHER,
-                       "hooks": [{"type": "command",
-                                  "command": f'python "{brain}/scripts/pii_gate.py"'}]},
-        "Stop": {"hooks": [{"type": "command",
-                            "command": f'python "{brain}/scripts/review_output.py" '
-                                       f'--root "{wiki}" --gate'}]},
+        "SessionStart": [{"hooks": [{"type": "command",
+                                     "command": f'python "{brain}/scripts/session_gate.py"'}]}],
+        "PreToolUse": [
+            {"matcher": PII_MATCHER,
+             "hooks": [{"type": "command",
+                        "command": f'python "{brain}/scripts/pii_gate.py"'}]},
+            {"matcher": EDIT_MATCHER,
+             "hooks": [{"type": "command", "timeout": 5,
+                        "command": f'python "{brain}/scripts/wiki_edit_gate.py"'}]},
+        ],
+        "Stop": [{"hooks": [{"type": "command",
+                             "command": f'python "{brain}/scripts/review_output.py" '
+                                        f'--root "{wiki}" --gate'}]}],
     }
 
 
@@ -1230,26 +1238,27 @@ def is_ours(hook):
 
 
 def merge_hooks(settings, wanted):
-    """Replace this brain's hook entries in place and keep every other entry.
+    """Replace this brain's hook groups in place and keep every other group.
 
-    The first of ours in an event takes the place of the new group, so a second run
-    writes the same file. Groups that held only ours disappear; a group that also held
-    someone else's hook keeps that hook.
+    `wanted` maps each event to a list of groups. In each event, the first group that
+    holds one of ours takes the place of the whole wanted list; the other groups of ours
+    go. A group that also holds someone else's hook keeps that hook, in its place. So a
+    second run writes the same file, and a hand-added group keeps its position.
     """
     out = dict(settings)
     hooks = dict(out.get("hooks") or {})
-    for event, group in wanted.items():
+    for event, groups in wanted.items():
         merged, placed = [], False
         for existing in hooks.get(event) or []:
             inner = existing.get("hooks") or []
             if any(is_ours(h) for h in inner) and not placed:
-                merged.append(group)
+                merged.extend(groups)
                 placed = True
             rest = [h for h in inner if not is_ours(h)]
             if rest:
                 merged.append(dict(existing, hooks=rest))
         if not placed:
-            merged.append(group)
+            merged.extend(groups)
         hooks[event] = merged
     out["hooks"] = hooks
     return out
@@ -1285,16 +1294,17 @@ def absolute_read(wiki, rest):
     return f"Read({prefix}/{rest})"
 
 
-def wiki_deny_rules(wiki):
-    """The wiki's committed `Read(./x)` deny rules, rewritten as absolute rules."""
+def deny_tails(wiki):
+    """The tails of the wiki's committed `Read(./x)` deny rules, e.g. `raw/**`."""
     settings = load_json(wiki / ".claude" / "settings.json")
     rules = (settings.get("permissions") or {}).get("deny") or []
-    out = []
-    for rule in rules:
-        match = DENY_READ.fullmatch(rule) if isinstance(rule, str) else None
-        if match:
-            out.append(absolute_read(wiki.as_posix(), match.group(1)))
-    return out
+    return [m.group(1) for m in (DENY_READ.fullmatch(r) for r in rules
+                                 if isinstance(r, str)) if m]
+
+
+def wiki_deny_rules(wiki):
+    """The wiki's committed `Read(./x)` deny rules, rewritten as absolute rules."""
+    return [absolute_read(wiki.as_posix(), tail) for tail in deny_tails(wiki)]
 
 
 def configured_wiki():
@@ -1302,6 +1312,76 @@ def configured_wiki():
         return str(json.loads(brain_config().read_text(encoding="utf-8")).get("wiki") or "")
     except (OSError, ValueError, AttributeError):
         return ""
+
+
+def wiki_snapshot(wiki):
+    """What the wiki steps rewrite, read before any of them runs.
+
+    The brain's pointer and the wiki's git `brain.root` are the old paths the installer
+    wrote; once a step rewrites them the old values are gone, so every step gets this
+    snapshot from wiki_rows, read once before the first apply.
+    """
+    r = git_in(wiki, "config", "--get", "brain.root")
+    return {"brain_root": r.stdout.strip() if r.returncode == 0 else "",
+            "wiki": configured_wiki()}
+
+
+def permission_list(settings, key):
+    block = settings.get("permissions")
+    value = block.get(key) if isinstance(block, dict) else None
+    return value if isinstance(value, list) else []
+
+
+def stale_dirs(entries, keep, marker, old):
+    """Extra directories the installer wrote for an older brain or wiki, to be removed.
+
+    An entry that exists, is not `keep`, and holds `marker` is an old copy. A missing
+    entry equal to `old` (the value the installer wrote before) is an old copy too. Any
+    other entry stays, including a folder the owner added by hand.
+    """
+    out = []
+    for entry in entries:
+        if not isinstance(entry, str) or entry == keep:
+            continue
+        path = pathlib.Path(entry)
+        if path.is_dir():
+            if (path / marker).is_file():
+                out.append(entry)
+        elif old and entry == old:
+            out.append(entry)
+    return out
+
+
+def stale_deny(rules, wiki, tails):
+    """Absolute `Read(//...)` rules the wiki wrote before, to be removed.
+
+    A rule is stale when its tail is one of the wiki's deny tails and it is not the rule
+    absolute_read writes for the wiki now. The drive form `//c/...` is matched like any
+    other head, because only the tail decides it.
+    """
+    current = {absolute_read(wiki.as_posix(), t) for t in tails}
+    out = []
+    for rule in rules:
+        if not isinstance(rule, str) or not ABSOLUTE_READ.fullmatch(rule) or rule in current:
+            continue
+        if any(rule.endswith("/" + t + ")") for t in tails):
+            out.append(rule)
+    return out
+
+
+def drop_items(settings, section, key, items):
+    """Remove the listed items from settings[section][key]. A missing list is left alone."""
+    block = settings.get(section)
+    if not items or not isinstance(block, dict) or not isinstance(block.get(key), list):
+        return dict(settings)
+    kept = [x for x in block[key] if x not in items]
+    if len(kept) == len(block[key]):
+        return dict(settings)
+    out = dict(settings)
+    nblock = dict(block)
+    nblock[key] = kept
+    out[section] = nblock
+    return out
 
 
 def wiki_local(wiki):
@@ -1312,29 +1392,39 @@ def brain_local():
     return ROOT / ".claude" / "settings.local.json"
 
 
-def wiki_local_merged(wiki, existing):
+def wiki_local_merged(wiki, existing, old):
+    """The wiki's settings.local.json with our hooks, this brain's directory, and no stale copy."""
     out = merge_hooks(existing, wiki_hook_entries(ROOT.as_posix(), wiki.as_posix()))
+    stale = stale_dirs(permission_list(existing, "additionalDirectories"),
+                       ROOT.as_posix(), "scripts/wiki_root.py", old["brain_root"])
+    out = drop_items(out, "permissions", "additionalDirectories", stale)
     return add_unique(out, "permissions", "additionalDirectories", [ROOT.as_posix()])
 
 
-def brain_local_merged(wiki, existing):
-    out = add_unique(existing, "permissions", "additionalDirectories", [wiki.as_posix()])
+def brain_local_merged(wiki, existing, old):
+    """The brain's settings.local.json: the wiki as a directory, its deny rules, no stale copy."""
+    stale_dir = stale_dirs(permission_list(existing, "additionalDirectories"),
+                           wiki.as_posix(), "_local/brain.md", old["wiki"])
+    stale_rule = stale_deny(permission_list(existing, "deny"), wiki, deny_tails(wiki))
+    out = drop_items(existing, "permissions", "additionalDirectories", stale_dir)
+    out = drop_items(out, "permissions", "deny", stale_rule)
+    out = add_unique(out, "permissions", "additionalDirectories", [wiki.as_posix()])
     return add_unique(out, "permissions", "deny", wiki_deny_rules(wiki))
 
 
-def step_wiki_pointer(wiki):
+def step_wiki_pointer(wiki, old):
     have = configured_wiki()
     return have == wiki.as_posix(), (
         "points at " + (have or "(unset)"),
         "write " + str(brain_config()) + " so this brain finds the wiki")
 
 
-def apply_wiki_pointer(wiki):
+def apply_wiki_pointer(wiki, old):
     wiki_root.write_config(wiki, config=brain_config())
     return True, "wiki = " + wiki.as_posix()
 
 
-def step_wiki_import(wiki):
+def step_wiki_import(wiki, old):
     line, warn = brain_import_line(ROOT)
     path = wiki / "_local" / "brain.md"
     have = path.read_text(encoding="utf-8") if path.is_file() else ""
@@ -1344,7 +1434,7 @@ def step_wiki_import(wiki):
         "write _local/brain.md as " + line + (". WARNING: " + warn if warn else ""))
 
 
-def apply_wiki_import(wiki):
+def apply_wiki_import(wiki, old):
     line, warn = brain_import_line(ROOT)
     path = wiki / "_local" / "brain.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1352,52 +1442,54 @@ def apply_wiki_import(wiki):
     return True, line + (". WARNING: " + warn if warn else "")
 
 
-def step_wiki_hooks(wiki):
+def step_wiki_hooks(wiki, old):
     path = wiki_local(wiki)
     try:
         existing = load_json(path)
     except ValueError as err:
         return False, (str(path) + " is not valid JSON (" + str(err) + ")",
                        "REPORT IT, and change nothing")
-    done = wiki_local_merged(wiki, existing) == existing
+    done = wiki_local_merged(wiki, existing, old) == existing
     return done, (
-        "session, PII and review gates wired" if done else "gates missing or stale",
-        "write the three gate hooks and this brain's extra directory into " + str(path))
+        "session, PII, edit and review gates wired, no stale path" if done
+        else "gates missing or stale",
+        "write the four gate hooks, this brain's extra directory, and remove stale paths in "
+        + str(path))
 
 
-def apply_wiki_hooks(wiki):
+def apply_wiki_hooks(wiki, old):
     path = wiki_local(wiki)
     try:
         existing = load_json(path)
     except ValueError as err:
         return False, str(path) + " is not valid JSON (" + str(err) + "). Left untouched."
-    merged = wiki_local_merged(wiki, existing)
+    merged = wiki_local_merged(wiki, existing, old)
     if merged == existing:
         return True, "already wired"
     backup = write_json(path, merged)
     return True, "wired" + (", backup at " + backup if backup else "")
 
 
-def step_brain_for_wiki(wiki):
+def step_brain_for_wiki(wiki, old):
     path = brain_local()
     try:
         existing = load_json(path)
-        done = brain_local_merged(wiki, existing) == existing
+        done = brain_local_merged(wiki, existing, old) == existing
     except ValueError as err:
         return False, (str(path) + " or the wiki's settings is not valid JSON (" + str(err) + ")",
                        "REPORT IT, and change nothing")
     return done, (
-        "brain allows the wiki and denies its files by absolute path" if done
-        else "brain is missing the wiki's directory or deny rules",
-        "write the wiki as an extra directory and its Read rules as absolute deny rules into "
-        + str(path))
+        "brain allows the wiki, denies its files by absolute path, no stale path" if done
+        else "brain is missing the wiki's directory or deny rules, or has a stale path",
+        "write the wiki as an extra directory and its Read rules as absolute deny rules, "
+        "and remove stale paths, in " + str(path))
 
 
-def apply_brain_for_wiki(wiki):
+def apply_brain_for_wiki(wiki, old):
     path = brain_local()
     try:
         existing = load_json(path)
-        merged = brain_local_merged(wiki, existing)
+        merged = brain_local_merged(wiki, existing, old)
     except ValueError as err:
         return False, str(path) + " or the wiki's settings is not valid JSON (" + str(err) + \
             "). Left untouched."
@@ -1430,14 +1522,14 @@ def git_problems(wiki):
     return problems
 
 
-def step_wiki_git(wiki):
+def step_wiki_git(wiki, old):
     problems = git_problems(wiki)
     return not problems, (
         "in order" if not problems else "missing: " + ", ".join(problems),
         "set brain.root and core.hooksPath, mark the hooks executable in git and on disk")
 
 
-def apply_wiki_git(wiki):
+def apply_wiki_git(wiki, old):
     if git_in(wiki, "rev-parse", "--git-dir").returncode != 0:
         return False, str(wiki) + " is not a git clone; clone DataWithDaru/wiki there first"
     failed = []
@@ -1469,11 +1561,16 @@ WIKI_STEPS = (
 
 
 def wiki_rows(wiki):
-    """Report rows for the wiki steps, shaped like plan() so report() and apply can use them."""
+    """Report rows for the wiki steps, shaped like plan() so report() and apply can use them.
+
+    The old paths are read once here, before any step applies, so a step that rewrites
+    the pointer or git's brain.root cannot hide the path it replaced from a later step.
+    """
+    old = wiki_snapshot(wiki)
     rows = []
     for label, state, apply_step in WIKI_STEPS:
-        done, (detail, what) = state(wiki)
-        rows.append((label, done, detail, what, lambda w=wiki, f=apply_step: f(w)))
+        done, (detail, what) = state(wiki, old)
+        rows.append((label, done, detail, what, lambda w=wiki, o=old, f=apply_step: f(w, o)))
     return rows
 
 

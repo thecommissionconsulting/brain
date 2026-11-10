@@ -75,11 +75,15 @@ configuration rather than a service. Most of the risk sits in two places: a merg
 that damages configuration the vault does not own, and a step that reports
 success without binding anything.
 
-Unit level, already automated. `scripts/test_install_vault.py`, 224 cases, covers
+Unit level, already automated. `scripts/test_install_vault.py`, 246 cases, covers
 the wiki steps too: the pointer, the `_local/brain.md` import (`~/` form under home,
 absolute with a warning otherwise), the two gate merges (a second run changes
-nothing, a hand-added hook or deny rule survives, a malformed file is left alone),
-the wiki's git keys and executable hooks, and the `--wiki-only` plan. It runs on a
+nothing, a hand-added hook or deny rule survives, a malformed file is left alone;
+the wiki's `PreToolUse` carries the PII gate and the `Write|Edit|MultiEdit` edit gate
+as two groups), stale paths the installer wrote earlier (an old brain or wiki
+folder, the old `brain.root` and pointer, and the old `//c/...` deny rules are
+removed; a missing folder the owner added stays), the wiki's git keys and executable
+hooks, and the `--wiki-only` plan. It runs on a
 temporary brain and wiki, so no case writes the real `_local/` or settings files.
 It also covers
 the settings merge (other hooks and settings survive, a second run adds no
