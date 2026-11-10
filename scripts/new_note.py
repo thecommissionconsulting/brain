@@ -241,8 +241,11 @@ def set_last_touch(path, day):
 
 
 def gate_text(text, own, names):
-    """R-58 blocks (exit 2); R-58 warnings and R-59 hits are printed, and the note is written."""
-    block, warn = wg.foreign_clients(text, own, names)
+    """R-58 blocks (exit 2); R-58 warnings and R-59 hits are printed, and the note is written.
+
+    R-58 applies only to a note that belongs to a client, as in the edit gate: a note under
+    wiki/internal/ with no client (a playbook, a timesheet) may name clients."""
+    block, warn = wg.foreign_clients(text, own, names) if own else ([], [])
     if block:
         fail(f"R-58: this note names another client ({', '.join(block)}). Remove that name, or put "
              f"shared material in wiki/internal/. The note was not written.")

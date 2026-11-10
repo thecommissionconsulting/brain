@@ -197,6 +197,9 @@ def main():
                                 "--date", "2026-11-14"])
     case("meeting naming another client: exit 2", code, 2)
     case("meeting naming another client: R-58 text", "R-58" in err, True)
+    code, out, err = run(root, ["playbook", "Beta Ltd onboarding", "--owner", "Test",
+                                "--date", "2026-11-14"])
+    case("playbook naming a client (no own client): exit 0", code, 0)
     case("meeting naming another client: no file written",
          (root / "wiki/clients/otaki-water-co/meetings/2026-11-14-otaki-water-co-beta-ltd-review.md").exists(),
          False)
