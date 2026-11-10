@@ -31,7 +31,7 @@ machine). Writing style is §Writing below.
 | **MANUAL** | Written down, nothing checks it. Held by review and habit only. |
 
 A MANUAL rule is not a weak rule, it is an *unguarded* one. Promoting rules up this scale
-is how the vault gets more reliable over time. Today: 18 HARD, 9 WARN, 30 MANUAL (57 rows, R-43, R-44 and R-57 retired and counted as MANUAL).
+is how the vault gets more reliable over time. Today: 19 HARD, 9 WARN, 30 MANUAL (58 rows, R-43, R-44 and R-57 retired and counted as MANUAL).
 
 ## The register
 
@@ -92,8 +92,9 @@ is how the vault gets more reliable over time. Today: 18 HARD, 9 WARN, 30 MANUAL
 | R-55 | Reply | A Build runs the Build flow: Jev picks the superpowers skill, Elephant drafts, a Goldfish subagent reviews, the owner approves | §Response contract | `scripts/jev_route.py` picks the skill; the rest is unguarded | MANUAL | ok |
 | R-56 | Model | Jev gets metadata only: mode off or meta, endpoint fixed; no note text leaves the machine. Named scripts may write `_local/`; the model may not | §Permissions | `scripts/jev_client.py` `may_send`, `load_policy` and `send`. `scripts/jev_route.py` sends only through them | **HARD** (local) | ok |
 | R-57 | Model | Retired. | — | — | MANUAL | retired |
-| R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, wired in `.claude/settings.json`). Blocks a distinctive name; warns on a single-word folder name | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
+| R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, wired in `.claude/settings.json`). Blocks a distinctive name; warns on a single-word folder name. Client repos too: `wiki_edit_gate.py --client`, wired by `install_vault.py --client-repo` | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
 | R-59 | Model | An edit to the wiki holds no instructions aimed at an AI model | §Permissions | `scripts/wiki_edit_gate.py`, pattern `AI_TEXT`. Warns only | WARN (local) | ok |
+| R-60 | Model | The nightly digest writes and updates wiki notes unattended. Every note it touches carries `source: nightly-digest`; it pushes to the wiki `main` only when the wiki checks pass, else it parks the work on a local `digest/<date>` branch | §Permissions | `scripts/nightly_digest.py`: pushes only after the wiki checks pass; otherwise parks the work on `digest/<date>` | **HARD** (local) | ok |
 
 Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
@@ -208,6 +209,7 @@ What the model may do in this vault.
   `check_schema_sync.py`, `session_gate.py`.
 - Run `scripts/jev_route.py` at the start of a Build (R-55). It sends the Build summary
   to TypeSafe; the owner approved this on 2026-11-07.
+- `scripts/new_note.py` may create a note, the folders it needs, its `index.md` §9 lines and the client's entry in `_ai/client-names.json` without asking; it never overwrites a note, and edits only an engagement's `last_touch:` when asked.
 
 **Ask first**
 
