@@ -14,6 +14,8 @@ Bare names resolve in this order: scripts/, .githooks/, .github/workflows/, then
 
 CLI: python scripts/check_gates.py (run from the brain root). Prints ::error:: and ::warning::
 lines and a summary. Exit 1 if there is any error.
+
+Enforces R-62: every HARD rule names a gate file that exists, and a .py gate names its rule id.
 """
 import pathlib
 import re

@@ -31,7 +31,7 @@ machine). Writing style is §Writing below.
 | **MANUAL** | Written down, nothing checks it. Held by review and habit only. |
 
 A MANUAL rule is not a weak rule, it is an *unguarded* one. Promoting rules up this scale
-is how the vault gets more reliable over time. Today: 19 HARD, 9 WARN, 30 MANUAL (58 rows, R-43, R-44 and R-57 retired and counted as MANUAL).
+is how the vault gets more reliable over time. Today: 20 HARD, 9 WARN, 31 MANUAL (60 rows, R-43, R-44 and R-57 retired and counted as MANUAL).
 
 ## The register
 
@@ -95,6 +95,8 @@ is how the vault gets more reliable over time. Today: 19 HARD, 9 WARN, 30 MANUAL
 | R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, wired in `.claude/settings.json`). Blocks a distinctive name; warns on a single-word folder name. Client repos too: `wiki_edit_gate.py --client`, wired by `install_vault.py --client-repo` | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
 | R-59 | Model | An edit to the wiki holds no instructions aimed at an AI model | §Permissions | `scripts/wiki_edit_gate.py`, pattern `AI_TEXT`. Warns only | WARN (local) | ok |
 | R-60 | Model | The nightly digest writes and updates wiki notes unattended. Every note it touches carries `source: nightly-digest`; it pushes to the wiki `main` only when the wiki checks pass, else it parks the work on a local `digest/<date>` branch | §Permissions | `scripts/nightly_digest.py`: pushes only after the wiki checks pass; otherwise parks the work on `digest/<date>` | **HARD** (local) | ok |
+| R-61 | Reply | The fresh-eyes review's depth follows `scripts/review_triage.py`: `quick` is one reviewer pass over the diff; `full` is the full review. | §Response contract | `scripts/review_triage.py` picks the depth; the review itself is unguarded | MANUAL | ok |
+| R-62 | Model | Every HARD rule names a gate file that exists in the repo; a `.py` gate names its rule id. | §How these reach a session | `scripts/check_gates.py` | **HARD** (CI and session gate) | ok |
 
 Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
@@ -269,7 +271,7 @@ note, `_ai/retrieval.md` in the wiki and a direct human instruction carry author
 
 ## Response contract
 
-How Claude handles every request (R-50 to R-55).
+How Claude handles every request (R-50 to R-55, and R-61).
 
 - **Request types.** Each request is a Question, a Task or a Build. A Question gets a
   short answer and changes nothing. A Task or Build opens with a goal and an ETA.
@@ -290,6 +292,9 @@ How Claude handles every request (R-50 to R-55).
      saves it in `raw/output/`.
   3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the
      files it names, never the conversation. Claude reports the gaps it finds.
+     Before the review, Claude runs `python scripts/review_triage.py` and sizes the
+     review by its answer: `quick` is one reviewer pass over the diff; `full` is the full
+     review (R-61).
   4. **Approve.** The owner approves the plan. Then Haiku carries it out (R-52).
   The summary goes to TypeSafe, so it carries no secrets or client material. The key
   lives only in the `TYPESAFE_API_KEY` environment variable.
@@ -338,8 +343,12 @@ record; the frontmatter is.
 ## How these reach a session
 
 `CLAUDE.md` loads the non-negotiables into every session, and a `SessionStart` hook runs
-`scripts/session_gate.py`, which runs the two sub-second gates plus the wiki's `index.md` budget so
-a session opens knowing which rows above are red. The full suite runs in CI on every push
+`scripts/session_gate.py`, which runs the sub-second gates (`check_schema_sync.py`, `check_gates.py`
+and, in the wiki, `check_maps.py`) plus the wiki's `index.md` budget so a session opens knowing
+which rows above are red.
+
+Every HARD rule names a gate file that exists in the repo, and a `.py` gate names the rule id
+in its source. `scripts/check_gates.py` checks this, in CI and at session start (R-62). The full suite runs in CI on every push
 and PR.
 
 Two other hooks sit in `.claude/settings.json`: `pii_gate.py` on `PreToolUse`, which keeps
