@@ -22,7 +22,7 @@ FAILS = [0]
 RAN = [0]
 CREATED = []
 KEY_ENV = {"TYPESAFE_API_KEY": "test-key"}
-OFF = {"mode": "off", "client_approved": False}
+OFF = {"mode": "off"}
 
 
 def case(name, got, want):
@@ -139,24 +139,25 @@ def main():
     case("policy: bad JSON is off", jc.load_policy(write(tmp_dir / "bad.json", "{")), OFF)
     case("policy: unknown mode is off",
          jc.load_policy(write(tmp_dir / "m.json", '{"mode": "max"}'))["mode"], "off")
+    case("policy: full mode reads as off",
+         jc.load_policy(write(tmp_dir / "f.json", '{"mode": "full"}'))["mode"], "off")
 
     print("may_send")
     case("may_send: off sends nothing", jc.may_send("hello", "meta", OFF, scan=clean), (False, "policy off"))
     case("may_send: meta allows meta", jc.may_send("hello", "meta", {"mode": "meta"}, scan=clean), (True, "ok"))
     case("may_send: meta blocks wiki", jc.may_send("hello", "wiki", {"mode": "meta"}, scan=clean),
          (False, "zone not allowed"))
-    case("may_send: client needs approval",
-         jc.may_send("x", "client", {"mode": "full", "client_approved": False}, scan=clean),
-         (False, "client not approved"))
-    case("may_send: PII hit blocks", jc.may_send("a@b.com", "meta", {"mode": "full"}, scan=hit),
+    case("may_send: client zone blocked under meta",
+         jc.may_send("x", "client", {"mode": "meta"}, scan=clean), (False, "zone not allowed"))
+    case("may_send: PII hit blocks", jc.may_send("a@b.com", "meta", {"mode": "meta"}, scan=hit),
          (False, "personal data"))
-    case("may_send: scan error blocks", jc.may_send("x", "meta", {"mode": "full"}, scan=boom),
+    case("may_send: scan error blocks", jc.may_send("x", "meta", {"mode": "meta"}, scan=boom),
          (False, "PII scan unavailable"))
 
     print("send")
-    case("send: endpoint from env",
-         captured_endpoint(env={"JEV_ENDPOINT": "https://e.test", "TYPESAFE_API_KEY": "test-key"}),
-         "https://e.test")
+    case("send: endpoint fixed despite env",
+         captured_endpoint(env={"JEV_ENDPOINT": "https://evil.example", "TYPESAFE_API_KEY": "test-key"}),
+         jc.DEFAULT_ENDPOINT)
     case("send: default endpoint", captured_endpoint(env={"TYPESAFE_API_KEY": "test-key"}),
          "https://api.typesafe.ai/v1/systemone")
     case("send: no key raises KeyError", raised(jc.send, {}, {}, 4, fake_ok), KeyError)

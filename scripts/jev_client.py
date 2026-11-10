@@ -1,9 +1,10 @@
 """The one module that talks to Jev, run from the repo root or imported by a hook.
 
 Policy: _local/jev-policy.json, machine-local and gitignored. A missing or malformed
-file means mode "off": nothing is sent. Modes: "off" sends nothing, "meta" sends text
-Claude wrote, "full" also sends wiki/ content. wiki/clients/ needs "full" and
-"client_approved": true.
+file means mode "off": nothing is sent. Modes: "off" sends nothing, "meta" sends only
+metadata Claude wrote about its own work. No note text leaves the machine: any other
+mode, "full" included, reads as "off". The endpoint is fixed (DEFAULT_ENDPOINT); the
+JEV_ENDPOINT variable is not read.
 
 Every call passes the PII scan (patterns.scan) first. The API key comes only from the
 TYPESAFE_API_KEY environment variable and is never printed, logged or written to a file.
@@ -26,33 +27,30 @@ LOG_DIR = ROOT / "_local" / "jev-log"
 MODES = {
     "off": set(),
     "meta": {"meta"},
-    "full": {"meta", "wiki", "client"},
 }
 
 
 def load_policy(path=POLICY_PATH):
-    """{"mode": ..., "client_approved": bool}. Any read or parse problem gives mode "off"."""
-    off = {"mode": "off", "client_approved": False}
+    """{"mode": "off" | "meta"}. Any read or parse problem, or any other mode, gives "off"."""
+    off = {"mode": "off"}
     try:
         data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     except Exception:
         return off
     if not isinstance(data, dict) or data.get("mode") not in MODES:
         return off
-    return {"mode": data["mode"], "client_approved": data.get("client_approved") is True}
+    return {"mode": data["mode"]}
 
 
 def may_send(text, zone, policy, scan=None):
     """(allowed, reason). Reasons: ok, empty, policy off, zone not allowed,
-    client not approved, personal data, PII scan unavailable."""
+    personal data, PII scan unavailable."""
     if policy.get("mode") not in MODES or not MODES[policy["mode"]]:
         return False, "policy off"
     if not text.strip():
         return False, "empty"
     if zone not in MODES[policy["mode"]]:
         return False, "zone not allowed"
-    if zone == "client" and policy.get("client_approved") is not True:
-        return False, "client not approved"
     try:
         if scan is None:
             from patterns import scan
@@ -90,7 +88,7 @@ def send(payload, env, timeout=4, call=None):
     key = (env.get("TYPESAFE_API_KEY") or "").strip()
     if not key:
         raise KeyError("TYPESAFE_API_KEY")
-    endpoint = (env.get("JEV_ENDPOINT") or "").strip() or DEFAULT_ENDPOINT
+    endpoint = DEFAULT_ENDPOINT
     call = call or post_json
     box = {}
 
