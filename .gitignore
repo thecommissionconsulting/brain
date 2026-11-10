@@ -35,6 +35,3 @@ assets/
 # Working notes for an in-flight plan, not vault knowledge.
 .superpowers/
 
-# The presentation template ships two logos. The blanket assets/ rule above is
-# for the bulk OneDrive migration; this folder is source, not migrated output.
-!_ai/templates/presentation/assets/

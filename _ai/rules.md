@@ -109,8 +109,6 @@ Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
 Start every new note from a skeleton in `_ai/templates/` (wiki): [[client]], [[engagement]],
 [[meeting]], [[playbook]], [[retrospective]].
-For slides, start from the HTML deck shell in `_ai/templates/presentation/` (wiki) — see
-[[presentation-theme]]. Draft, not ratified.
 
 Every note carries `type:`, and whatever that type requires. CI (`vault-lint`) enforces the
 table in §Schema. Fields the lint does not demand are still expected, so fill them in.
