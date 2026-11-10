@@ -195,4 +195,14 @@ through git's exclude file (never a committed file), and records the repo in
 `_local/client-repos.json`. A second run changes nothing. It never touches the global
 Claude settings.
 
+## Schedule the nightly digest
+
+`python scripts/install_vault.py --nightly --yes` (needs a configured wiki) schedules
+`scripts/nightly_digest.py` at midnight, Pacific/Auckland. Linux: the systemd user timer
+`brain-nightly-digest.timer`, with `Persistent=true` so a machine that was off runs the
+missed day on its next boot. Windows: the Task Scheduler task `brain-nightly-digest`,
+made from an XML file that starts when available. `--check` reports whether it is in
+place and points at this brain. A second run changes nothing. The run needs `claude` and
+`git` on the scheduler's PATH; the unit passes the current PATH on Linux.
+
 Related: [[setup]] · [[vault-install-test-plan]] · [[new-machine]]

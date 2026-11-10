@@ -1931,6 +1931,198 @@ def client_repo_mode(args):
     return 0 if all_ok else 1
 
 
+# ---- the midnight schedule ------------------------------------------------------
+# `--nightly` schedules scripts/nightly_digest.py at midnight, Pacific/Auckland. Linux: a
+# systemd user service and timer. Windows: a Task Scheduler task made from an XML file,
+# because the XML can say StartWhenAvailable (a machine off at midnight runs on next wake).
+# It is its own mode: no global step, no settings file. The unit text and the command
+# lines are pure functions, so tests check them without running systemctl or schtasks.
+
+NIGHTLY_NAME = "brain-nightly-digest"
+NIGHTLY_TIMER = NIGHTLY_NAME + ".timer"
+NIGHTLY_SERVICE = NIGHTLY_NAME + ".service"
+NIGHTLY_XML = "nightly-digest-task.xml"
+TASK_START = "2026-01-01T00:00:00"
+
+
+def _systemd_quote(text):
+    return '"' + text.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _systemd_plain(text):
+    return text.replace("%", "%%")
+
+
+def nightly_service_text(python, brain, wiki, path_env):
+    """The service unit. brain and wiki are plain paths; path_env is the PATH to pass on."""
+    script = brain + "/scripts/nightly_digest.py"
+    return ("[Unit]\n"
+            "Description=Brain nightly digest: reads the day's transcripts and updates the wiki\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            "ExecStart=" + _systemd_quote(python) + " " + _systemd_quote(script) + "\n"
+            "WorkingDirectory=" + _systemd_plain(wiki) + "\n"
+            "Environment=" + _systemd_quote("PATH=" + path_env) + "\n")
+
+
+def nightly_timer_text():
+    return ("[Unit]\n"
+            "Description=Run the brain nightly digest at midnight, Pacific/Auckland\n\n"
+            "[Timer]\n"
+            "OnCalendar=*-*-* 00:00:00 Pacific/Auckland\n"
+            "Persistent=true\n\n"
+            "[Install]\n"
+            "WantedBy=timers.target\n")
+
+
+def windows_script(brain):
+    """The digest script path as Windows spells it, from a brain folder."""
+    return str(pathlib.PureWindowsPath(brain, "scripts", "nightly_digest.py"))
+
+
+def nightly_task_xml(python, brain, wiki):
+    """The Task Scheduler XML: daily at midnight, runs when available, a 2 hour limit."""
+    from xml.sax.saxutils import escape
+    return ('<?xml version="1.0" encoding="UTF-16"?>\n'
+            '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+            '  <RegistrationInfo>\n'
+            '    <Description>Brain nightly digest: reads the day\'s transcripts and updates the wiki at midnight.</Description>\n'
+            '  </RegistrationInfo>\n'
+            '  <Triggers>\n'
+            '    <CalendarTrigger>\n'
+            '      <StartBoundary>' + TASK_START + '</StartBoundary>\n'
+            '      <Enabled>true</Enabled>\n'
+            '      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>\n'
+            '    </CalendarTrigger>\n'
+            '  </Triggers>\n'
+            '  <Principals>\n'
+            '    <Principal id="Author">\n'
+            '      <LogonType>InteractiveToken</LogonType>\n'
+            '      <RunLevel>LeastPrivilege</RunLevel>\n'
+            '    </Principal>\n'
+            '  </Principals>\n'
+            '  <Settings>\n'
+            '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n'
+            '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n'
+            '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n'
+            '    <StartWhenAvailable>true</StartWhenAvailable>\n'
+            '    <Enabled>true</Enabled>\n'
+            '    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>\n'
+            '  </Settings>\n'
+            '  <Actions Context="Author">\n'
+            '    <Exec>\n'
+            '      <Command>' + escape(python) + '</Command>\n'
+            '      <Arguments>' + escape('"' + windows_script(brain) + '"') + '</Arguments>\n'
+            '      <WorkingDirectory>' + escape(wiki) + '</WorkingDirectory>\n'
+            '    </Exec>\n'
+            '  </Actions>\n'
+            '</Task>\n')
+
+
+def schtasks_create_argv(xml_path):
+    return ["schtasks", "/Create", "/F", "/TN", NIGHTLY_NAME, "/XML", xml_path]
+
+
+def task_query_points_at(text, brain):
+    """True when a schtasks /XML query names this brain's digest script."""
+    return windows_script(brain) in text
+
+
+def nightly_rows(wiki, runner=subprocess.run, windows=None, unit_dir=None):
+    """The one schedule row, shaped like the other report rows. runner runs systemctl or schtasks."""
+    if windows is None:
+        windows = os.name == "nt"
+    brain = str(ROOT)
+    if windows:
+        xml_path = ROOT / "_local" / NIGHTLY_XML
+        query = runner(["schtasks", "/Query", "/TN", NIGHTLY_NAME, "/XML"],
+                       capture_output=True, text=True)
+        done = query.returncode == 0 and task_query_points_at(query.stdout or "", brain)
+
+        def apply():
+            xml_path.parent.mkdir(parents=True, exist_ok=True)
+            xml_path.write_bytes(nightly_task_xml(sys.executable, brain, str(wiki)).encode("utf-16"))
+            res = runner(schtasks_create_argv(str(xml_path)), capture_output=True, text=True)
+            if res.returncode != 0:
+                return False, "schtasks /Create failed: " + last_line(res)
+            return True, "task " + NIGHTLY_NAME + " created at midnight"
+
+        return [("nightly schedule", done,
+                 "task " + ("points at this brain" if done else "missing or points elsewhere"),
+                 "create the Task Scheduler task " + NIGHTLY_NAME + " at 00:00 from " + str(xml_path),
+                 apply)]
+
+    units = pathlib.Path(unit_dir) if unit_dir else pathlib.Path.home() / ".config" / "systemd" / "user"
+    texts = {NIGHTLY_SERVICE: nightly_service_text(sys.executable, brain, str(wiki),
+                                                   os.environ.get("PATH", "")),
+             NIGHTLY_TIMER: nightly_timer_text()}
+    files_ok = all((units / name).is_file() and (units / name).read_text(encoding="utf-8") == text
+                   for name, text in texts.items())
+    try:
+        enabled_check = runner(["systemctl", "--user", "is-enabled", NIGHTLY_TIMER],
+                               capture_output=True, text=True)
+        enabled = enabled_check.returncode == 0 and (enabled_check.stdout or "").strip() == "enabled"
+    except OSError:
+        enabled = False
+    done = files_ok and enabled
+
+    def apply():
+        units.mkdir(parents=True, exist_ok=True)
+        for name, text in texts.items():
+            with open(units / name, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+        for argv in (["systemctl", "--user", "daemon-reload"],
+                     ["systemctl", "--user", "enable", "--now", NIGHTLY_TIMER]):
+            try:
+                res = runner(argv, capture_output=True, text=True)
+            except OSError as err:
+                return False, "systemctl not available: " + str(err)
+            if res.returncode != 0:
+                return False, " ".join(argv) + " failed: " + last_line(res)
+        return True, "timer " + NIGHTLY_TIMER + " enabled for midnight"
+
+    return [("nightly schedule", done,
+             "timer " + ("enabled and current" if done else "missing, stale, or not enabled"),
+             "write " + NIGHTLY_SERVICE + " and " + NIGHTLY_TIMER + " in " + str(units) +
+             " and enable the timer", apply)]
+
+
+def last_line(res):
+    text = ((res.stderr or "") + (res.stdout or "")).strip()
+    return text.splitlines()[-1] if text else "no output"
+
+
+def nightly_mode(args, runner=subprocess.run, windows=None, unit_dir=None):
+    wiki = find_wiki(None)
+    if wiki is None:
+        print("wiki: not configured. Pass --wiki PATH first, the wiki clone that holds index.md.")
+        return 2
+    rows = nightly_rows(wiki, runner, windows, unit_dir)
+    print("nightly digest schedule (wiki " + str(wiki) + "):")
+    report(rows)
+    pending = [r for r in rows if not r[1]]
+    if args.check:
+        print("\n" + (str(len(pending)) + " step(s) pending." if pending else "fully installed."))
+        return 1 if pending else 0
+    if args.dry_run:
+        return 0
+    if not pending:
+        print("\nnothing to do.")
+        return 0
+    if not args.yes:
+        answer = input("\napply " + str(len(pending)) + " step(s)? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("nothing applied.")
+            return 1
+    print()
+    all_ok = True
+    for label, _, _, _, apply_step in pending:
+        ok, detail = apply_step()
+        print("  " + ("done" if ok else "FAILED") + "  " + label + ": " + detail)
+        all_ok = all_ok and ok
+    return 0 if all_ok else 1
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Install this vault on this machine.")
     ap.add_argument("--check", action="store_true", help="report state, change nothing")
@@ -1954,6 +2146,8 @@ def main(argv):
                     help="guard one client's git repo with the wiki edit gate (needs --client)")
     ap.add_argument("--client", metavar="SLUG",
                     help="the client whose names the --client-repo edits must not carry")
+    ap.add_argument("--nightly", action="store_true",
+                    help="schedule the midnight nightly digest (needs a configured wiki)")
     args = ap.parse_args(argv)
 
     if args.detect:
@@ -1965,6 +2159,9 @@ def main(argv):
             print("--client-repo PATH and --client SLUG go together.")
             return 2
         return client_repo_mode(args)
+
+    if args.nightly:
+        return nightly_mode(args)
 
     if args.bindings is not None:
         values = detect()
