@@ -26,6 +26,7 @@ import json
 import pathlib
 import re
 import sys
+import unicodedata
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wiki_root  # noqa: E402
@@ -107,10 +108,18 @@ def distinctive(name, listed):
     return listed or len(name.split()) >= 2
 
 
+def fold(text):
+    """ASCII and lowercase: accents dropped (Otaki matches Ōtaki), case ignored."""
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
+
+
 def name_pattern(name):
-    words = [w for w in re.split(r"[\s_-]+", name.strip()) if w]
-    body = r"[\s_-]+".join(re.escape(w) for w in words)
-    return re.compile(r"(?<!\w)" + body + r"(?!\w)", re.IGNORECASE)
+    """Words of the folded name, any run of non-alphanumerics between them, whole words only."""
+    words = [w for w in re.split(r"[^a-z0-9]+", fold(name)) if w]
+    if not words:
+        return re.compile(r"(?!)")  # a name with no Latin letters matches nothing
+    body = r"[^a-z0-9]+".join(re.escape(w) for w in words)
+    return re.compile(r"(?<![a-z0-9])" + body + r"(?![a-z0-9])")
 
 
 def added_text(tool_name, tool_input):
@@ -126,6 +135,7 @@ def added_text(tool_name, tool_input):
 
 def foreign_clients(text, own, names):
     """(block, warn): slugs of other clients named in text, sorted."""
+    text = fold(text)
     own_spans = []
     for name, _listed in names.get(own, []) if own else []:
         own_spans += [m.span() for m in name_pattern(name).finditer(text)]
@@ -188,7 +198,36 @@ def _deny_reason(own, block):
             f"common word, add it to ignore in _ai/client-names.json.")
 
 
-def _run(stdin_text, env, state_dir):
+def _client_mode(client, text, root, data, malformed, state_dir):
+    """--client SLUG: every edit, any path, is checked against that client's name. R-59 is off."""
+    names = clients(root, data)
+    if client not in names:
+        return json.dumps({"systemMessage": f"R-58: client {client} is not in the wiki; check skipped."})
+    block, warn = foreign_clients(text, client, names)
+    out = {}
+    messages = []
+    if block:
+        out["hookSpecificOutput"] = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"R-58: this edit in {client}'s repo names another client ({', '.join(block)}). "
+                f"Remove it, or keep shared material out of this repo. If it is a vendor or a "
+                f"common word, add it to ignore in _ai/client-names.json."),
+        }
+    if warn:
+        messages.append(f"R-58: this edit in {client}'s repo may name another client "
+                        f"({', '.join(warn)}). Not blocked.")
+    if malformed:
+        notice = _malformed_notice(state_dir)
+        if notice:
+            messages.append(notice)
+    if messages:
+        out["systemMessage"] = " ".join(messages)
+    return json.dumps(out) if out else ""
+
+
+def _run(stdin_text, env, state_dir, client=None):
     payload = json.loads(stdin_text)
     tool = payload.get("tool_name", "")
     if tool not in TOOLS:
@@ -200,6 +239,9 @@ def _run(stdin_text, env, state_dir):
     file_path = str(ti.get("file_path") or "").replace("\\", "/")
     if not file_path:
         return ""
+    if client is not None:
+        data, malformed = _load_names(root)
+        return _client_mode(client, added_text(tool, ti), root, data, malformed, state_dir)
     try:
         rel = pathlib.Path(file_path).resolve().relative_to(root).as_posix()
     except (ValueError, OSError):
@@ -244,21 +286,36 @@ def _run(stdin_text, env, state_dir):
     return json.dumps(out) if out else ""
 
 
-def run_hook(stdin_text, env=None, state_dir=None):
-    """The JSON to print for one hook call, or "". Fails open with a systemMessage."""
+def run_hook(stdin_text, env=None, state_dir=None, client=None):
+    """The JSON to print for one hook call, or "". Fails open with a systemMessage.
+
+    client: a slug, checks every edit against that client's names (--client mode).
+    """
     try:
         root = wiki_root.wiki_root(env)
         if state_dir is None:
             state_dir = root / "_local" if root is not None else pathlib.Path(".")
-        return _run(stdin_text, env, state_dir)
+        return _run(stdin_text, env, state_dir, client)
     except Exception as err:
         return json.dumps({"systemMessage": f"wiki edit gate failed: {type(err).__name__}"})
 
 
-def main():
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    client = None
+    if "--client" in argv:
+        i = argv.index("--client")
+        value = argv[i + 1] if i + 1 < len(argv) else ""
+        if not value or value.startswith("--"):
+            sys.stdout.write(json.dumps({"systemMessage": (
+                "R-58: --client needs a client slug, for example --client alpha-co; check skipped.")})
+                + "\n")
+            return 0
+        client = value
     try:
         raw = sys.stdin.buffer.read().decode("utf-8")
-        out = run_hook(raw)
+        out = run_hook(raw, client=client)
     except Exception as err:
         out = json.dumps({"systemMessage": f"wiki edit gate failed: {type(err).__name__}"})
     if out:
