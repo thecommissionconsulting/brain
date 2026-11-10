@@ -68,6 +68,7 @@ import time
 # so this works however the script was started.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wiki_root  # noqa: E402
+import wiki_edit_gate  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS_PATH = ".githooks"
@@ -1720,6 +1721,166 @@ def report(rows):
             print(" " * 27 + "will " + what)
 
 
+# ---- client repos ---------------------------------------------------------------
+# `--client-repo PATH --client SLUG` guards one client's git repo: a PreToolUse gate on
+# the edit tools that checks every edit against that client's names only. It is its own
+# mode and never touches the global settings. The repo's settings file is ignored through
+# the git exclude file, so nothing committed changes.
+
+CLIENT_HOOK_TIMEOUT = 5
+LOCAL_SETTINGS = ".claude/settings.local.json"
+REGISTRY_FILE = "client-repos.json"
+
+
+def client_repo_group(brain, slug):
+    """The one PreToolUse group a client repo gets. brain is a forward-slash path."""
+    return {"matcher": EDIT_MATCHER,
+            "hooks": [{"type": "command", "timeout": CLIENT_HOOK_TIMEOUT,
+                       "command": f'python "{brain}/scripts/wiki_edit_gate.py" --client {slug}'}]}
+
+
+def git_out(repo, *args):
+    proc = subprocess.run(["git", "-C", str(repo)] + list(args), capture_output=True, text=True)
+    return proc.returncode == 0, proc.stdout.strip()
+
+
+def is_repo_top(repo):
+    ok, top = git_out(repo, "rev-parse", "--show-toplevel")
+    return ok and bool(top) and pathlib.Path(top).resolve() == repo.resolve()
+
+
+def exclude_file(repo):
+    """The exclude file git uses for this repo, shared by worktrees; None if git cannot say."""
+    ok, out = git_out(repo, "rev-parse", "--git-path", "info/exclude")
+    if not ok or not out:
+        return None
+    path = pathlib.Path(out)
+    return path if path.is_absolute() else pathlib.Path(repo) / path
+
+
+def is_tracked(repo):
+    return git_out(repo, "ls-files", "--error-unmatch", "--", LOCAL_SETTINGS)[0]
+
+
+def is_ignored(repo):
+    return subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", "--", LOCAL_SETTINGS],
+                          capture_output=True).returncode == 0
+
+
+def registry_path():
+    return ROOT / "_local" / REGISTRY_FILE
+
+
+def settings_row(repo, slug):
+    """Step 1: the gate group in the repo's settings.local.json. Other groups are kept."""
+    label = "client settings"
+    path = repo / LOCAL_SETTINGS
+    if is_tracked(repo):
+        return (label, False, LOCAL_SETTINGS + " is committed in this repo; not edited",
+                "nothing: a committed file is never edited", lambda: (False, "committed; not edited"))
+    try:
+        existing = load_json(path)
+    except (OSError, ValueError):
+        return (label, False, "malformed, left alone: " + str(path),
+                "nothing: fix or remove the file first", lambda: (False, "malformed; left alone"))
+    merged = merge_hooks(existing, {"PreToolUse": [client_repo_group(ROOT.as_posix(), slug)]})
+    if merged == existing:
+        return (label, True, "gate for " + slug + " is in place", "", None)
+
+    def apply():
+        backup = write_json(path, merged)
+        return True, "wrote " + str(path) + (" (backup " + backup + ")" if backup else "")
+    return (label, False, "gate for " + slug + " is missing",
+            "write the gate group into " + str(path), apply)
+
+
+def exclude_row(repo):
+    """Step 2: the settings file is ignored, through the exclude file unless git already ignores it."""
+    label = "git ignore"
+    if is_ignored(repo):
+        return (label, True, LOCAL_SETTINGS + " is already ignored", "", None)
+    path = exclude_file(repo)
+    if path is None:
+        return (label, False, "git cannot say where the exclude file is", "nothing",
+                lambda: (False, "no exclude file"))
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    if LOCAL_SETTINGS in [line.strip() for line in lines]:
+        return (label, True, "listed in " + str(path), "", None)
+
+    def apply():
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lead = "" if not text or text.endswith("\n") else "\n"
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text + lead + LOCAL_SETTINGS + "\n")
+        return True, "added " + LOCAL_SETTINGS + " to " + str(path)
+    return (label, False, LOCAL_SETTINGS + " is not ignored", "add it to " + str(path), apply)
+
+
+def registry_row(repo, slug):
+    """Step 3: _local/client-repos.json maps this repo's path to the client slug."""
+    label = "client registry"
+    path = registry_path()
+    key = repo.resolve().as_posix()
+    try:
+        data = load_json(path)
+    except (OSError, ValueError):
+        return (label, False, "malformed, left alone: " + str(path),
+                "nothing: fix the file first", lambda: (False, "malformed; left alone"))
+    if data.get(key) == slug:
+        return (label, True, key + " is " + slug, "", None)
+
+    def apply():
+        updated = dict(data)
+        updated[key] = slug
+        write_json(path, updated)
+        return True, "recorded " + key + " as " + slug
+    return (label, False, key + " is not recorded", "record it in " + str(path), apply)
+
+
+def client_repo_mode(args):
+    repo = pathlib.Path(args.client_repo).expanduser().resolve()
+    slug = args.client
+    if not repo.is_dir() or not is_repo_top(repo):
+        print("not the top of a git repo: " + args.client_repo)
+        return 2
+    wiki = find_wiki(None)
+    if wiki is None:
+        print("wiki: not configured. Pass --wiki PATH first, the wiki clone that holds index.md.")
+        return 2
+    data, _ = wiki_edit_gate._load_names(wiki)
+    if slug not in wiki_edit_gate.clients(wiki, data):
+        print("client " + slug + " is not in the wiki (no wiki/clients/" + slug +
+              "/ folder and no _ai/client-names.json entry).")
+        return 2
+
+    rows = [settings_row(repo, slug), exclude_row(repo), registry_row(repo, slug)]
+    print("client repo: " + str(repo))
+    print("client: " + slug)
+    report(rows)
+    pending = [r for r in rows if not r[1]]
+    if args.check:
+        print("\n" + (str(len(pending)) + " step(s) pending." if pending else "fully installed."))
+        return 1 if pending else 0
+    if args.dry_run:
+        return 0
+    if not pending:
+        print("\nnothing to do.")
+        return 0
+    if not args.yes:
+        answer = input("\napply " + str(len(pending)) + " step(s)? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("nothing applied.")
+            return 1
+    print()
+    all_ok = True
+    for label, _, _, _, apply_step in pending:
+        ok, detail = apply_step()
+        print("  " + ("done" if ok else "FAILED") + "  " + label + ": " + detail)
+        all_ok = all_ok and ok
+    return 0 if all_ok else 1
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Install this vault on this machine.")
     ap.add_argument("--check", action="store_true", help="report state, change nothing")
@@ -1739,11 +1900,21 @@ def main(argv):
     ap.add_argument("--jev-mode", choices=JEV_MODES, metavar="off|meta",
                     help="set the Jev egress policy in _local/jev-policy.json. Without it, a "
                          "missing file is created as off and an existing one is left alone")
+    ap.add_argument("--client-repo", metavar="PATH",
+                    help="guard one client's git repo with the wiki edit gate (needs --client)")
+    ap.add_argument("--client", metavar="SLUG",
+                    help="the client whose names the --client-repo edits must not carry")
     args = ap.parse_args(argv)
 
     if args.detect:
         print(json.dumps(detect(), indent=2, sort_keys=True))
         return 0
+
+    if args.client_repo or args.client:
+        if not (args.client_repo and args.client):
+            print("--client-repo PATH and --client SLUG go together.")
+            return 2
+        return client_repo_mode(args)
 
     if args.bindings is not None:
         values = detect()

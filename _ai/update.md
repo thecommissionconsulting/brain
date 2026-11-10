@@ -181,4 +181,18 @@ tools still missing, and credentials. [[setup]] has the reasoning for each. Obsi
 `_local/` binding files are not part of the install for now: they
 are set up by hand as they are added, so do not create, check or ask for them.
 
+## Guard a client repo
+
+A client's own repo can have its edits checked against that client's names, so a name
+from another client cannot land in it. Run once per repo, from the brain:
+
+    python scripts/install_vault.py --client-repo <path> --client <slug> --check
+    python scripts/install_vault.py --client-repo <path> --client <slug> --yes
+
+`<path>` must be the top of a git repo and `<slug>` must be a client in the wiki. The
+command writes the gate into the repo's `.claude/settings.local.json`, ignores that file
+through git's exclude file (never a committed file), and records the repo in
+`_local/client-repos.json`. A second run changes nothing. It never touches the global
+Claude settings.
+
 Related: [[setup]] · [[vault-install-test-plan]] · [[new-machine]]

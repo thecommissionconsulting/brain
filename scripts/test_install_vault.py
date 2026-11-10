@@ -476,6 +476,219 @@ def matcher_cases():
     case("the brain's PII matcher is the installer's", pii, [iv.PII_MATCHER])
 
 
+# ---- client repos ------------------------------------------------------------
+# Every case builds a temporary brain, a temporary wiki and temporary git repos.
+# ROOT is the temporary brain and BRAIN_WIKI names the temporary wiki, so the real
+# _local/, the real wiki and any real repo are never written.
+
+def git_run(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True)
+
+
+def commit_repo(path, add=()):
+    """A git repo with one commit; add lists paths to commit, forced (for tracked-file cases)."""
+    path = pathlib.Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    git_run("init", "-q", str(path))
+    for rel in add:
+        git_run("-C", str(path), "add", "-f", "--", rel)
+    git_run("-C", str(path), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+            "commit", "-q", "--allow-empty", "-m", "init")
+
+
+def exclude_text(repo):
+    out = git_run("-C", str(repo), "rev-parse", "--git-path", "info/exclude").stdout.strip()
+    path = pathlib.Path(out)
+    if not path.is_absolute():
+        path = pathlib.Path(repo) / path
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def ignored(repo, rel):
+    return git_run("-C", str(repo), "check-ignore", "-q", "--", rel).returncode == 0
+
+
+def client_repo_cases():
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    saved_git = {k: os.environ.get(k) for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME")}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            # The owner's global ignore file (~/.config/git/ignore) may already ignore the
+            # settings file, which would hide the exclude step. Git reads empty config here.
+            gitcfg = base / "gitconfig"
+            gitcfg.write_text("", encoding="utf-8")
+            os.environ["GIT_CONFIG_GLOBAL"] = str(gitcfg)
+            os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+            os.environ["XDG_CONFIG_HOME"] = str(base / "xdg")
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            (brain / ".claude").mkdir()
+            wiki = base / "wiki"
+            (wiki / "wiki" / "clients" / "alpha-co").mkdir(parents=True)
+            (wiki / "index.md").write_text("# index\n", encoding="utf-8")
+            iv.ROOT = brain
+            os.environ["BRAIN_WIKI"] = str(wiki)
+            registry = brain / "_local" / "client-repos.json"
+
+            print("client repo: the group")
+            group = iv.client_repo_group("C:/Users/Daru Broodryk/brain", "alpha-co")
+            back = json.loads(json.dumps(group))
+            case("the group matches the edit tools", back["matcher"], "Write|Edit|MultiEdit")
+            case("the group has a 5 second timeout", back["hooks"][0]["timeout"], 5)
+            case("a path with spaces is quoted and survives JSON",
+                 back["hooks"][0]["command"],
+                 'python "C:/Users/Daru Broodryk/brain/scripts/wiki_edit_gate.py" --client alpha-co')
+
+            print("client repo: apply")
+            repo = base / "work" / "acme-app"
+            commit_repo(repo)
+            settings = repo / ".claude" / "settings.local.json"
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--check"])
+            case("check on a fresh repo exits 1", code, 1)
+            case("check shows three pending steps", out.count("PENDING"), 3)
+            case("check writes nothing", settings.exists() or registry.exists(), False)
+
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--yes"])
+            case("apply exits 0", code, 0)
+            pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+            case("apply writes one PreToolUse group", len(pre), 1)
+            want = 'python "' + brain.as_posix() + '/scripts/wiki_edit_gate.py" --client alpha-co'
+            case("the group runs the gate for this client", pre[0]["hooks"][0]["command"], want)
+            case("settings.local.json is ignored by git", ignored(repo, ".claude/settings.local.json"), True)
+            case("the exclude file holds the line once",
+                 exclude_text(repo).splitlines().count(".claude/settings.local.json"), 1)
+            case("the registry maps the repo to the client",
+                 json.loads(registry.read_text(encoding="utf-8")),
+                 {repo.resolve().as_posix(): "alpha-co"})
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--check"])
+            case("check after apply exits 0", code, 0)
+            case("check after apply says fully installed", "fully installed." in out, True)
+
+            print("client repo: second run")
+            before = settings.read_bytes()
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--yes"])
+            case("a second apply exits 0", code, 0)
+            case("a second apply says nothing to do", "nothing to do." in out, True)
+            case("a second apply leaves the settings file as it was", settings.read_bytes(), before)
+            case("a second apply does not repeat the exclude line",
+                 exclude_text(repo).splitlines().count(".claude/settings.local.json"), 1)
+
+            print("client repo: other people's settings")
+            kept = base / "work" / "kept-app"
+            commit_repo(kept)
+            hand = {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}
+            old = {"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "timeout": 5,
+                   "command": 'python "old/scripts/wiki_edit_gate.py" --client beta-ltd'}]}
+            kept_settings = kept / ".claude" / "settings.local.json"
+            kept_settings.parent.mkdir(parents=True)
+            kept_settings.write_text(json.dumps({"model": "opus", "hooks": {"PreToolUse": [hand, old]}}),
+                                     encoding="utf-8")
+            code, _ = capture(["--client-repo", str(kept), "--client", "alpha-co", "--yes"])
+            data = json.loads(kept_settings.read_text(encoding="utf-8"))
+            case("apply keeps a hand-added group", data["hooks"]["PreToolUse"][0], hand)
+            case("apply replaces our old group for another client",
+                 [g["hooks"][0]["command"].endswith("--client alpha-co") for g in data["hooks"]["PreToolUse"][1:]],
+                 [True])
+            case("apply keeps other settings", data["model"], "opus")
+            case("apply exits 0 with a hand-added group", code, 0)
+
+            print("client repo: refusals")
+            code, out = capture(["--client-repo", str(base / "work" / "nope"), "--client", "alpha-co", "--yes"])
+            case("a path that is not a repo exits 2", code, 2)
+            plain = base / "plain"
+            plain.mkdir()
+            code, out = capture(["--client-repo", str(plain), "--client", "alpha-co", "--yes"])
+            case("a folder outside any repo exits 2", code, 2)
+            sub = repo / "src"
+            sub.mkdir()
+            code, out = capture(["--client-repo", str(sub), "--client", "alpha-co", "--yes"])
+            case("a subfolder of a repo exits 2", code, 2)
+            case("the subfolder refusal says it is not the top", "top" in out, True)
+            unknown = base / "work" / "unknown-app"
+            commit_repo(unknown)
+            code, out = capture(["--client-repo", str(unknown), "--client", "no-such", "--yes"])
+            case("an unknown client exits 2", code, 2)
+            case("an unknown client writes no settings",
+                 (unknown / ".claude" / "settings.local.json").exists(), False)
+            case("an unknown client names the wiki check", "not in the wiki" in out, True)
+            try:
+                code, out = capture(["--client-repo", str(repo), "--client-repo-typo"])
+            except SystemExit as err:
+                code = err.code
+            case("an unknown flag exits 2", code, 2)
+            code, out = capture(["--client-repo", str(repo)])
+            case("--client-repo without --client exits 2", code, 2)
+
+            print("client repo: git worktree")
+            wt = base / "work" / "acme-wt"
+            git_run("-C", str(repo), "worktree", "add", "-q", "-b", "wt-branch", str(wt))
+            code, out = capture(["--client-repo", str(wt), "--client", "alpha-co", "--yes"])
+            case("a worktree can be guarded", code, 0)
+            case("the worktree's settings file is written",
+                 (wt / ".claude" / "settings.local.json").is_file(), True)
+            case("the exclude line is written to the shared exclude file",
+                 ".claude/settings.local.json" in exclude_text(repo).splitlines(), True)
+            case("the registry keys the worktree path",
+                 wt.resolve().as_posix() in json.loads(registry.read_text(encoding="utf-8")), True)
+
+            print("client repo: a committed settings file")
+            tracked = base / "work" / "tracked-app"
+            commit_repo(tracked)
+            (tracked / ".claude").mkdir()
+            (tracked / ".claude" / "settings.local.json").write_text('{"hooks": {}}\n', encoding="utf-8")
+            git_run("-C", str(tracked), "add", "-f", "--", ".claude/settings.local.json")
+            git_run("-C", str(tracked), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                    "commit", "-q", "-m", "track settings")
+            before = (tracked / ".claude" / "settings.local.json").read_bytes()
+            code, out = capture(["--client-repo", str(tracked), "--client", "alpha-co", "--yes"])
+            case("a committed settings file exits 1", code, 1)
+            case("a committed settings file is left as it was",
+                 (tracked / ".claude" / "settings.local.json").read_bytes(), before)
+
+            print("client repo: already ignored by git")
+            seen = base / "work" / "seen-app"
+            commit_repo(seen)
+            ignore_file = base / "global-ignore"
+            ignore_file.write_text(".claude/settings.local.json\n", encoding="utf-8")
+            gitcfg.write_text("[core]\n\texcludesFile = " + ignore_file.as_posix() + "\n", encoding="utf-8")
+            code, out = capture(["--client-repo", str(seen), "--client", "alpha-co", "--yes"])
+            case("apply exits 0 when git already ignores the file", code, 0)
+            case("no exclude line is added when git already ignores it",
+                 ".claude/settings.local.json" in exclude_text(seen).splitlines(), False)
+            case("the settings file is still written",
+                 (seen / ".claude" / "settings.local.json").is_file(), True)
+            gitcfg.write_text("", encoding="utf-8")
+
+            print("client repo: malformed files")
+            bad = base / "work" / "bad-app"
+            commit_repo(bad)
+            (bad / ".claude").mkdir()
+            (bad / ".claude" / "settings.local.json").write_text("{bad", encoding="utf-8")
+            code, out = capture(["--client-repo", str(bad), "--client", "alpha-co", "--yes"])
+            case("malformed settings exit 1", code, 1)
+            case("malformed settings are left alone",
+                 (bad / ".claude" / "settings.local.json").read_text(encoding="utf-8"), "{bad")
+            registry.write_text("{bad", encoding="utf-8")
+            fresh = base / "work" / "fresh-app"
+            commit_repo(fresh)
+            code, out = capture(["--client-repo", str(fresh), "--client", "alpha-co", "--yes"])
+            case("a malformed registry exits 1", code, 1)
+            case("a malformed registry is left alone", registry.read_text(encoding="utf-8"), "{bad")
+    finally:
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
+        for name, value in saved_git.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main():
     # No case may reach GitHub. Cases that need the private marketplace's answer
     # set it themselves.
@@ -1115,6 +1328,7 @@ def main():
     verify_cases()
     jev_cases()
     matcher_cases()
+    client_repo_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
     print("\ntest_install_vault: " + str(total - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")
