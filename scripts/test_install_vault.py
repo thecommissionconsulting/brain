@@ -372,6 +372,110 @@ def verify_cases():
         vi.ROOT = saved_root
 
 
+# ---- the Jev policy file, the key line and the duplicate prompt hook -------
+# The policy lives in the brain's _local/, which is machine-local and gitignored.
+# Every case points ROOT at a temporary brain, so the real _local/ is never written.
+
+def jev_cases():
+    saved_root = iv.ROOT
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            iv.ROOT = brain
+            path = brain / "_local" / "jev-policy.json"
+
+            done, (detail, what) = iv.step_jev_policy(None)
+            case("jev: no file and no flag is pending", done, False)
+            case("jev: the pending detail says missing", "missing" in detail, True)
+            ok, _ = iv.apply_jev_policy(None)
+            case("jev: apply with no flag creates the file", ok, True)
+            case("jev: the new file holds mode off only", json.loads(path.read_text(encoding="utf-8")),
+                 {"mode": "off"})
+            case("jev: an existing file with no flag is done", iv.step_jev_policy(None)[0], True)
+
+            path.write_text(json.dumps({"mode": "meta"}), encoding="utf-8")
+            case("jev: no flag leaves an existing mode alone", iv.step_jev_policy(None)[0], True)
+            iv.apply_jev_policy(None)
+            case("jev: apply with no flag keeps the mode", json.loads(path.read_text(encoding="utf-8")),
+                 {"mode": "meta"})
+
+            case("jev: a flag that differs is pending", iv.step_jev_policy("off")[0], False)
+            ok, _ = iv.apply_jev_policy("off")
+            case("jev: the flag sets the mode", json.loads(path.read_text(encoding="utf-8")), {"mode": "off"})
+            backups = list(path.parent.glob("jev-policy.json.bak-*"))
+            case("jev: the replaced file is backed up", len(backups), 1)
+            case("jev: the same flag again is done", iv.step_jev_policy("off")[0], True)
+
+            path.write_text("{not json", encoding="utf-8")
+            done, (detail, what) = iv.step_jev_policy("meta")
+            case("jev: a malformed file is not done", done, False)
+            case("jev: a malformed file is reported", "not valid JSON" in detail, True)
+            ok, _ = iv.apply_jev_policy("meta")
+            case("jev: a malformed file is never overwritten", (ok, path.read_text(encoding="utf-8")),
+                 (False, "{not json"))
+
+            case("jev: the policy line for a malformed file", iv.jev_policy_line(), "jev policy: malformed")
+            path.unlink()
+            case("jev: the policy line says missing", iv.jev_policy_line(), "jev policy: missing")
+            path.write_text(json.dumps({"mode": "meta"}), encoding="utf-8")
+            case("jev: the policy line shows the mode", iv.jev_policy_line(), "jev policy: meta")
+
+            case("jev: the key line says yes when set", iv.jev_key_line({"TYPESAFE_API_KEY": "test-key"}),
+                 "TYPESAFE_API_KEY set: yes")
+            case("jev: the key line says no when unset", iv.jev_key_line({}), "TYPESAFE_API_KEY set: no")
+            case("jev: a blank key counts as unset", iv.jev_key_line({"TYPESAFE_API_KEY": "  "}),
+                 "TYPESAFE_API_KEY set: no")
+            case("jev: the key line never shows the value",
+                 "test-key" in iv.jev_key_line({"TYPESAFE_API_KEY": "test-key"}), False)
+
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    iv.main(["--jev-mode", "max", "--check"])
+                exited = None
+            except SystemExit as stop:
+                exited = stop.code
+            case("jev: an unknown mode is refused", exited, 2)
+    finally:
+        iv.ROOT = saved_root
+
+    jev_one = {"hooks": {"UserPromptSubmit": [{"hooks": [
+        {"command": 'python "x/scripts/jev_route.py" --hook'}]}]}}
+    jev_two = {"hooks": {"UserPromptSubmit": [{"hooks": [
+        {"command": 'python "x/scripts/jev_route.py" --hook'},
+        {"command": 'python "y/scripts/jev_route.py" --hook'}]}]}}
+    labels = lambda found: [c["label"] for c in found]
+    case("jev: one global Jev prompt hook is not a conflict",
+         [l for l in labels(iv.conflicts(jev_one, ".githooks", [])) if "Jev" in l], [])
+    dup = iv.conflicts(jev_one, ".githooks", [], jev_one)
+    case("jev: a global and a project Jev hook are a duplicate",
+         [l for l in labels(dup) if "Jev" in l], ["a second Jev prompt hook is registered"])
+    case("jev: the duplicate is left for the owner", [c["fix"] for c in dup if "Jev" in c["label"]], ["report"])
+    case("jev: two copies in one file are a duplicate",
+         [l for l in labels(iv.conflicts(jev_two, ".githooks", [])) if "Jev" in l],
+         ["a second Jev prompt hook is registered"])
+    case("jev: a Jev hook is not reported as another prompt hook",
+         any("another UserPromptSubmit" in l for l in labels(iv.conflicts(jev_one, ".githooks", []))), False)
+    case("jev: a foreign prompt hook is still reported",
+         any("another UserPromptSubmit" in l for l in labels(iv.conflicts(
+             {"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "someone-else"}]}]}},
+             ".githooks", []))), True)
+
+
+def matcher_cases():
+    """MultiEdit is an edit tool, so the PII gate must see it on every path the installer and the brain wire."""
+    case("the installer's PII matcher covers MultiEdit", "MultiEdit" in iv.PII_MATCHER, True)
+    case("the installer's PII matcher keeps the Edit tools",
+         all(t in iv.PII_MATCHER.split("|") for t in ("Edit", "Write", "NotebookEdit")), True)
+    brain = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    pii = [g["matcher"] for g in brain["hooks"]["PreToolUse"] if "pii_gate.py" in
+           json.dumps(g["hooks"])]
+    case("the brain's PII matcher covers MultiEdit", [("MultiEdit" in m) for m in pii], [True])
+    case("the brain's PII matcher is the installer's", pii, [iv.PII_MATCHER])
+
+
 def main():
     # No case may reach GitHub. Cases that need the private marketplace's answer
     # set it themselves.
@@ -1009,6 +1113,8 @@ def main():
     wiki_cases()
     stale_cases()
     verify_cases()
+    jev_cases()
+    matcher_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
     print("\ntest_install_vault: " + str(total - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")

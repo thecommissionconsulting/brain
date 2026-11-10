@@ -44,7 +44,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 VAULT_REPO = "https://github.com/<owner>/vault.git"
 VAULT_DIR = "vault"
@@ -229,13 +229,22 @@ def git_identity():
     return cfg("user.name"), cfg("user.email")
 
 
+def registry_path(path):
+    """The form obsidian.json stores. Obsidian keeps native paths, so a Windows
+    drive path is written with backslashes whatever OS the setup runs on."""
+    text = str(path)
+    if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+        return str(PureWindowsPath(text))
+    return str(Path(text))
+
+
 def vault_is_registered(registry, vault_path):
     try:
         data = json.loads(Path(registry).read_text(encoding="utf-8"))
     except Exception:
         return False
-    target = str(Path(vault_path))
-    return any(str(Path(v.get("path", ""))) == target
+    target = registry_path(vault_path)
+    return any(registry_path(v.get("path", "")) == target
                for v in data.get("vaults", {}).values())
 
 
@@ -348,9 +357,9 @@ def register_vault(registry, vault_path, obsidian_running):
         data = {"vaults": {}}
         registry.parent.mkdir(parents=True, exist_ok=True)
 
-    target = str(Path(vault_path))
+    target = registry_path(vault_path)
     for entry in data["vaults"].values():
-        if str(Path(entry.get("path", ""))) == target:
+        if registry_path(entry.get("path", "")) == target:
             return True, f"already registered: {target}"
 
     data["vaults"][secrets.token_hex(8)] = {

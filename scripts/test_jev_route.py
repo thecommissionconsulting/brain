@@ -1,7 +1,8 @@
 """Cases for jev_route.py, run from the repo root: python scripts/test_jev_route.py
 
 No case reaches TypeSafe. The network call is replaced with a fake wherever a case
-needs one. The key cases use the placeholder "test-key" and check that it never
+needs one, and the decision log is replaced with a recorder, so no case writes to
+_local/. The key cases use the placeholder "test-key" and check that it never
 appears in what the script prints, because a key in a log is a leaked key.
 """
 import contextlib
@@ -12,14 +13,32 @@ import os
 import pathlib
 import sys
 import urllib.error
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("jev_route", ROOT / "scripts" / "jev_route.py")
 jr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(jr)
+sys.path.insert(0, str(ROOT / "scripts"))
+import jev_client as jc  # noqa: E402  the same module jev_route imports
 
 FAILS = [0]
 RAN = [0]
+META = {"mode": "meta"}
+OFF = {"mode": "off"}
+LOGGED = []
+
+
+def record_log(use, sent_text, answers, cut, log_dir=None):
+    """Stands in for jev_client.log_decision: keeps only what it would write, never _local/.
+
+    The text itself is not kept: the real log stores only its SHA-256, and that is
+    tested against a temporary folder in test_jev_client.py.
+    """
+    LOGGED.append((use, sorted(answers), cut))
+
+
+jc.log_decision = record_log
 
 
 def case(name, got, want):
@@ -44,14 +63,17 @@ def answer(choice, confidence):
                                   "probabilities": {choice: confidence}}}}
 
 
-def run_main(argv, env_key=None, fake=None):
-    """Run main with a controlled key and fake network call; return (code, stdout, stderr)."""
+def run_main(argv, env_key=None, fake=None, policy=None):
+    """Run main with a controlled key, policy and fake network call; return (code, stdout, stderr)."""
     real_call = jr.call_jev
+    real_policy = getattr(jr, "load_policy", None)
     saved = os.environ.pop("TYPESAFE_API_KEY", None)
     if env_key is not None:
         os.environ["TYPESAFE_API_KEY"] = env_key
     if fake is not None:
         jr.call_jev = fake
+    chosen = policy if policy is not None else META
+    jr.load_policy = lambda path=None: dict(chosen)
     out, err = io.StringIO(), io.StringIO()
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -61,6 +83,8 @@ def run_main(argv, env_key=None, fake=None):
                 code = stop.code
     finally:
         jr.call_jev = real_call
+        if real_policy is not None:
+            jr.load_policy = real_policy
         os.environ.pop("TYPESAFE_API_KEY", None)
         if saved is not None:
             os.environ["TYPESAFE_API_KEY"] = saved
@@ -75,6 +99,13 @@ def run_hook_main(stdin_bytes, env_key=None, fake=None):
         return run_main(["--hook"], env_key=env_key, fake=fake)
     finally:
         sys.stdin = real_stdin
+
+
+def recording_fake(answer_payload, calls):
+    def fake(payload, key, timeout=30):
+        calls.append(payload)
+        return answer_payload
+    return fake
 
 
 def main():
@@ -126,11 +157,71 @@ def main():
     case("the failure names the error type", "Jev call failed: URLError" in err, True)
     case("the key is never in the error", "test-key" in err or "test-key" in out, False)
 
+    def fake_slow(payload, key, timeout=30):
+        raise TimeoutError("slow")
+
+    code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key", fake=fake_slow)
+    case("a call past the deadline exits 3", code, 3)
+    case("and names TimeoutError", "Jev call failed: TimeoutError" in err, True)
+
     code, out, err = run_main([])
     case("no file and no --text exits 2", code, 2)
 
     code, out, err = run_main(["--text", "x", "also-a-file.md"])
     case("both a file and --text exits 2", code, 2)
+
+    # --- policy and the egress gate on the Build path ---
+    build_calls = []
+    code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
+                              fake=recording_fake(answer("brainstorming", 0.8), build_calls),
+                              policy=OFF)
+    case("build: policy off exits 2", code, 2)
+    case("build: policy off names the policy file",
+         "Jev disabled by policy (_local/jev-policy.json)" in err, True)
+    case("build: policy off never calls Jev", len(build_calls), 0)
+
+    code, out, err = run_main(["--text", "Mail a@b.com about it"], env_key="test-key",
+                              fake=recording_fake(answer("brainstorming", 0.8), build_calls),
+                              policy=META)
+    case("build: personal data exits 2", code, 2)
+    case("build: personal data names the reason", "personal data" in err, True)
+    case("build: personal data never calls Jev", len(build_calls), 0)
+
+    del LOGGED[:]
+    code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
+                              fake=recording_fake(answer("brainstorming", 0.8), build_calls))
+    case("build: a routed call is logged as build", [entry[0] for entry in LOGGED], ["build"])
+    case("build: the log gets the answer's questions", LOGGED[0][1] if LOGGED else None, ["skill"])
+    case("build: the log gets the cut flag as False", LOGGED[0][2] if LOGGED else None, False)
+
+    # --- the send path goes through jev_client ---
+    case("ENDPOINT is the client's endpoint", jr.ENDPOINT, jc.DEFAULT_ENDPOINT)
+    case("the old CENTRAL path is gone", hasattr(jr, "CENTRAL"), False)
+    case("jev_route has no urlopen of its own", "urlopen(" in pathlib.Path(jr.__file__).read_text(encoding="utf-8"), False)
+
+    seen = {}
+
+    def fake_post(payload, key, timeout, endpoint):
+        seen["endpoint"] = endpoint
+        seen["timeout"] = timeout
+        return answer("task", 0.9)
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("a test reached the network")
+
+    real_post = jc.post_json
+    real_urlopen = urllib.request.urlopen
+    jc.post_json = fake_post
+    urllib.request.urlopen = no_network
+    try:
+        jr.call_jev({"state": "x"}, "test-key", timeout=7)
+    except AssertionError:
+        pass
+    finally:
+        jc.post_json = real_post
+        urllib.request.urlopen = real_urlopen
+    case("call_jev sends to the client's endpoint", seen.get("endpoint"), jc.DEFAULT_ENDPOINT)
+    case("call_jev passes its timeout on", seen.get("timeout"), 7)
 
     # --- classify: build_classify_request ---
     creq = jr.build_classify_request("  What time is it in Auckland?  ")
@@ -170,30 +261,28 @@ def main():
          "Jev gave no usable label for this prompt. Classify it yourself.")
 
     # --- classify: should_send ---
-    case("should_send: empty prompt", jr.should_send("", scan=lambda t: []), (False, "empty"))
-    case("should_send: slash command", jr.should_send("/help", scan=lambda t: []), (False, "slash command"))
+    case("should_send: empty prompt", jr.should_send("", scan=lambda t: [], policy=META), (False, "empty"))
+    case("should_send: slash command", jr.should_send("/help", scan=lambda t: [], policy=META),
+         (False, "slash command"))
     case("should_send: personal data found",
-         jr.should_send("hello", scan=lambda t: [("email address", 0, 5)]), (False, "personal data"))
+         jr.should_send("hello", scan=lambda t: [("email address", 0, 5)], policy=META),
+         (False, "personal data"))
     def scan_broken(t):
         raise RuntimeError("boom")
     case("should_send: a broken scan fails closed",
-         jr.should_send("hello", scan=scan_broken), (False, "PII scan unavailable"))
-    case("should_send: clean prompt", jr.should_send("hello", scan=lambda t: []), (True, "ok"))
+         jr.should_send("hello", scan=scan_broken, policy=META), (False, "PII scan unavailable"))
+    case("should_send: clean prompt", jr.should_send("hello", scan=lambda t: [], policy=META), (True, "ok"))
+    case("should_send: policy off sends nothing",
+         jr.should_send("hello", scan=lambda t: [], policy=OFF), (False, "policy off"))
     case("should_send: real scan finds an email",
-         jr.should_send("email someone@client-domain.com please"), (False, "personal data"))
+         jr.should_send("email someone@client-domain.com please", policy=META), (False, "personal data"))
 
     # --- classify: run_hook ---
-    def recording_fake(answer_payload, calls):
-        def fake(payload, key, timeout=30):
-            calls.append(payload)
-            return answer_payload
-        return fake
-
     clean = lambda t: []
     calls = []
     out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
                       {"TYPESAFE_API_KEY": "test-key"},
-                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean)
+                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=META)
     case("run_hook: the context is in the output", "additionalContext" in out, True)
     case("run_hook: the label is a Question", "a Question" in out, True)
     case("run_hook: the request has exactly the three keys",
@@ -205,14 +294,14 @@ def main():
     jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?", "session_id": "sess-secret",
                             "transcript_path": "/x/y"}),
                 {"TYPESAFE_API_KEY": "test-key"},
-                call=recording_fake(kind_answer("question", 0.9), calls), scan=clean)
+                call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=META)
     sent_text = json.dumps(calls[0]) if calls else ""
     case("run_hook: the session id never leaves", "sess-secret" in sent_text, False)
     case("run_hook: the transcript path never leaves", "/x/y" in sent_text, False)
 
     calls = []
     out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}), {},
-                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean)
+                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=META)
     case("run_hook: no key gives no output", out, "")
     case("run_hook: no key never calls Jev", len(calls), 0)
 
@@ -220,18 +309,38 @@ def main():
     out = jr.run_hook(json.dumps({"prompt": "Email someone@client-domain.com"}),
                       {"TYPESAFE_API_KEY": "test-key"},
                       call=recording_fake(kind_answer("question", 0.9), calls),
-                      scan=lambda t: [("email address", 0, 5)])
+                      scan=lambda t: [("email address", 0, 5)], policy=META)
     case("run_hook: personal data gives no output", out, "")
     case("run_hook: personal data never calls Jev", len(calls), 0)
+
+    calls = []
+    out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
+                      {"TYPESAFE_API_KEY": "test-key"},
+                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=OFF)
+    case("run_hook: policy off gives no output", out, "")
+    case("run_hook: policy off never calls Jev", len(calls), 0)
 
     def fake_refused(payload, key, timeout=30):
         raise urllib.error.URLError("refused")
 
     out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
-                      {"TYPESAFE_API_KEY": "test-key"}, call=fake_refused, scan=clean)
+                      {"TYPESAFE_API_KEY": "test-key"}, call=fake_refused, scan=clean, policy=META)
     case("run_hook: a failed call names the error type", "Jev classify failed: URLError" in out, True)
     case("run_hook: the failure has no key", "test-key" in out, False)
     case("run_hook: the failure has no prompt text", "What time" in out, False)
+
+    def fake_timeout(payload, key, timeout=30):
+        raise TimeoutError("slow")
+
+    out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
+                      {"TYPESAFE_API_KEY": "test-key"}, call=fake_timeout, scan=clean, policy=META)
+    case("run_hook: a timeout names TimeoutError", out.count("Jev classify failed: TimeoutError") == 1, True)
+
+    del LOGGED[:]
+    jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
+                {"TYPESAFE_API_KEY": "test-key"},
+                call=recording_fake(kind_answer("question", 0.9), []), scan=clean, policy=META)
+    case("run_hook: a routed prompt is logged as prompt", [entry[0] for entry in LOGGED], ["prompt"])
 
     # --- classify: main --hook ---
     code, out, err = run_hook_main(b"not json")

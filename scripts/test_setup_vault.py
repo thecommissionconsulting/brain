@@ -165,6 +165,11 @@ def test_registering_adds_the_vault_and_keeps_existing_entries(tmp_path):
     assert "C:\\work\\vault" in paths
 
 
+def test_a_registered_windows_path_is_found_by_its_forward_slash_form(tmp_path):
+    reg = _registry(tmp_path, {"vaults": {"abc123": {"path": "C:\\work\\vault", "ts": 1}}})
+    assert sv.vault_is_registered(reg, Path("C:/work/vault")) is True
+
+
 def test_registering_is_idempotent(tmp_path):
     reg = _registry(tmp_path, {"vaults": {}})
     sv.register_vault(reg, Path("C:/work/vault"), obsidian_running=False)

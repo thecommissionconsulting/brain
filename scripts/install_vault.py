@@ -430,7 +430,74 @@ def clear_hook_blocks(settings):
     return out
 
 
-def conflicts(settings, hooks_path, skill_conflicts):
+JEV_ROUTE = "jev_route.py"
+JEV_MODES = ("off", "meta")
+
+
+def jev_policy_path():
+    return ROOT / "_local" / "jev-policy.json"
+
+
+def jev_policy_mode(path):
+    """'missing', 'malformed', or the mode the file holds ("off" or "meta")."""
+    if not path.exists():
+        return "missing"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "malformed"
+    if not isinstance(data, dict) or data.get("mode") not in JEV_MODES:
+        return "malformed"
+    return data["mode"]
+
+
+def jev_policy_line():
+    return "jev policy: " + jev_policy_mode(jev_policy_path())
+
+
+def jev_key_line(env=None):
+    """Whether the key is set. The value is never read out, printed or stored."""
+    env = os.environ if env is None else env
+    set_ = bool((env.get("TYPESAFE_API_KEY") or "").strip())
+    return "TYPESAFE_API_KEY set: " + ("yes" if set_ else "no")
+
+
+def step_jev_policy(mode=None):
+    """The egress policy file. With no flag: a missing file is pending, an existing one is left alone.
+    With a flag: the file must hold that mode."""
+    path = jev_policy_path()
+    state = jev_policy_mode(path)
+    if state == "malformed":
+        return False, (str(path) + " is not valid JSON or holds no known mode",
+                       "REPORT IT, and change nothing")
+    if mode is None:
+        if state == "missing":
+            return False, ("missing", "create it with mode off")
+        return True, ("mode " + state + ", left alone", "nothing to do")
+    if state == mode:
+        return True, ("mode " + mode, "nothing to do")
+    return False, ("mode " + state, "set the mode to " + mode)
+
+
+def apply_jev_policy(mode=None):
+    done, (detail, _) = step_jev_policy(mode)
+    if done:
+        return True, "nothing to do"
+    if detail.startswith(str(jev_policy_path())):
+        return False, detail + ". Left untouched."
+    path = jev_policy_path()
+    data = {"mode": mode or "off"}
+    backup = write_json(path, data)
+    return True, "mode " + data["mode"] + (", backup at " + backup if backup else "")
+
+
+def jev_rows(mode):
+    """Report row for the policy file, shaped like plan() rows."""
+    done, (detail, what) = step_jev_policy(mode)
+    return [("jev policy", done, detail, what, lambda m=mode: apply_jev_policy(m))]
+
+
+def conflicts(settings, hooks_path, skill_conflicts, project=None):
     """What an existing Claude Code setup on this machine already claims.
 
     A machine that has never run Claude Code installs cleanly. A machine that has
@@ -442,6 +509,10 @@ def conflicts(settings, hooks_path, skill_conflicts):
     `fix` says who decides. "override" is ours to take, because the vault owns
     that binding and a clone is useless without it. "report" is not: another
     person's unrelated hook keeps running and we say so rather than removing it.
+
+    `project` is the brain's own .claude/settings.json. A Jev prompt hook in the
+    global settings covers every project, the brain included, so a copy in both
+    places, or two in one file, runs twice on every prompt. That is reported.
     """
     found = []
     if settings.get("disableAllHooks"):
@@ -450,14 +521,26 @@ def conflicts(settings, hooks_path, skill_conflicts):
             "detail": "disableAllHooks is true in the global settings, so none of "
                       "the vault's hooks would run",
             "fix": "override"})
+    jev = []
+    for source in (settings, project or {}):
+        for entry in source.get("hooks", {}).get("UserPromptSubmit", []) or []:
+            for hook in entry.get("hooks", []) or []:
+                if JEV_ROUTE in str(hook.get("command", "")):
+                    jev.append(str(hook.get("command", "")))
     for entry in settings.get("hooks", {}).get("UserPromptSubmit", []) or []:
         for hook in entry.get("hooks", []) or []:
             command = str(hook.get("command", ""))
-            if command and GATE_MARKER not in command:
+            if command and GATE_MARKER not in command and JEV_ROUTE not in command:
                 found.append({
                     "label": "another UserPromptSubmit hook is registered",
                     "detail": command + " runs on every prompt alongside the vault's gate",
                     "fix": "report"})
+    if len(jev) > 1:
+        found.append({
+            "label": "a second Jev prompt hook is registered",
+            "detail": str(len(jev)) + " copies of " + JEV_ROUTE + " run on every prompt; "
+                      "keep one, in ~/.claude/settings.json",
+            "fix": "report"})
     if hooks_path and hooks_path != HOOKS_PATH:
         found.append({
             "label": "core.hooksPath points elsewhere",
@@ -495,7 +578,11 @@ def machine_conflicts():
     except ValueError:
         settings = {}
     hooks_path = run("git", "config", "--get", "core.hooksPath").stdout.strip()
-    return conflicts(settings, hooks_path, stale_skill_copies())
+    try:
+        project = read_settings(ROOT / ".claude" / "settings.json")
+    except ValueError:
+        project = {}
+    return conflicts(settings, hooks_path, stale_skill_copies(), project)
 
 
 def write_bindings(local, values=None, force=False):
@@ -1151,7 +1238,7 @@ WIKI_HOOK_NAMES = ("pre-commit", "commit-msg", "pre-push")
 # An entry is ours when its command runs one of these scripts. Ours are replaced;
 # anything else in the same file, including a hook the owner added by hand, is kept.
 OUR_SCRIPTS = ("session_gate.py", "pii_gate.py", "review_output.py", "wiki_edit_gate.py")
-PII_MATCHER = "Read|Grep|Glob|Bash|Write|Edit|NotebookEdit"
+PII_MATCHER = "Read|Grep|Glob|Bash|Write|Edit|MultiEdit|NotebookEdit"
 EDIT_MATCHER = "Write|Edit|MultiEdit"
 ABSOLUTE_READ = re.compile(r"Read\(//.+\)")
 DENY_READ = re.compile(r"Read\(\./(.+)\)")
@@ -1649,6 +1736,9 @@ def main(argv):
                     help="the wiki clone to wire to this brain (default: the one wiki_root finds)")
     ap.add_argument("--wiki-only", action="store_true",
                     help="run only the wiki steps, never a global one")
+    ap.add_argument("--jev-mode", choices=JEV_MODES, metavar="off|meta",
+                    help="set the Jev egress policy in _local/jev-policy.json. Without it, a "
+                         "missing file is created as off and an existing one is left alone")
     args = ap.parse_args(argv)
 
     if args.detect:
@@ -1683,9 +1773,13 @@ def main(argv):
         rows = wiki_rows(wiki)
         print("wiki install:")
     else:
-        rows = plan() + (wiki_rows(wiki) if wiki else [])
+        rows = plan() + jev_rows(args.jev_mode) + (wiki_rows(wiki) if wiki else [])
         print("vault install:")
     report(rows)
+    if not args.wiki_only:
+        print(jev_policy_line())
+        if args.check:
+            print(jev_key_line())
     pending = [r for r in rows if not r[1]]
 
     clashes = [] if args.wiki_only else machine_conflicts()

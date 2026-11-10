@@ -42,7 +42,7 @@ DISTINCT_EXTERNAL_LIMIT = 10
 INTERNAL_DOMAIN = "@example.nz"
 
 EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b")
-PATH_TOOLS = {"Read", "Edit", "Write", "NotebookEdit"}
+PATH_TOOLS = {"Read", "Edit", "MultiEdit", "Write", "NotebookEdit"}
 SEARCH_TOOLS = {"Grep", "Glob"}
 
 # Shell verbs that put file CONTENT on stdout. A command that merely mentions a
