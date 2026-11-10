@@ -92,7 +92,7 @@ def wiki_cases():
 
             code, out = capture(["--wiki", str(wiki), "--wiki-only", "--dry-run"])
             case("dry-run exits 0", code, 0)
-            case("dry-run lists the five wiki steps", out.count("PENDING"), 5)
+            case("dry-run lists the six wiki steps", out.count("PENDING"), 6)
             case("dry-run writes nothing", (brain / "_local" / "brain.json").exists(), False)
 
             code, out = capture(["--wiki", str(wiki), "--wiki-only", "--check"])
@@ -218,6 +218,193 @@ def wiki_cases():
             os.environ.pop("BRAIN_WIKI", None)
         else:
             os.environ["BRAIN_WIKI"] = saved_env
+
+
+def launcher_cases():
+    """The wiki's scripts/new_note.py launcher: written, ignored, idempotent, never over a tracked file."""
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            (brain / ".claude").mkdir()
+            wiki = make_wiki(base)
+            git_run("-C", str(wiki), "-c", "user.name=Test", "-c", "user.email=t@example.com",
+                    "commit", "-q", "-m", "fixture")
+            iv.ROOT = brain
+            os.environ["BRAIN_WIKI"] = str(base / "no-such-wiki")
+            launcher = wiki / "scripts" / "new_note.py"
+
+            label, state, apply_step = next(s for s in iv.WIKI_STEPS if s[0] == "new_note launcher")
+            done, _ = state(wiki, iv.wiki_snapshot(wiki))
+            case("launcher step is pending on a bare wiki", done, False)
+            ok, _ = apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("launcher apply succeeds", ok, True)
+            case("launcher file is written", launcher.is_file(), True)
+            case("launcher names the brain's new_note.py",
+                 brain.as_posix() + "/scripts" in launcher.read_text(encoding="utf-8")
+                 or repr(brain.as_posix()) in launcher.read_text(encoding="utf-8"), True)
+            case("scripts/ is ignored through info/exclude",
+                 git_run("-C", str(wiki), "check-ignore", "-q", "--", "scripts/new_note.py").returncode,
+                 0)
+            case("the committed .gitignore is not edited",
+                 (wiki / ".gitignore").exists(), False)
+            case("the wiki stays clean after the launcher",
+                 git_run("-C", str(wiki), "status", "--porcelain").stdout.strip(), "")
+            done, _ = state(wiki, iv.wiki_snapshot(wiki))
+            case("launcher step is done after apply", done, True)
+            apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("a second apply adds one scripts/ line only",
+                 exclude_text(wiki).splitlines().count("scripts/"), 1)
+            iv.ROOT = ROOT
+            apply_step(wiki, iv.wiki_snapshot(wiki))
+            iv.ROOT = brain
+            res = subprocess.run([sys.executable, str(launcher), "--help"], cwd=str(wiki),
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 env=dict(os.environ, BRAIN_WIKI=str(wiki)))
+            case("the launcher runs new_note.py (--help exits 0)", res.returncode, 0)
+            if res.returncode != 0:
+                print(res.stdout + res.stderr)
+
+            launcher.write_text("print('someone else')\n", encoding="utf-8")
+            done, _ = state(wiki, iv.wiki_snapshot(wiki))
+            case("a stale launcher is pending", done, False)
+            apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("apply rewrites a stale launcher",
+                 "someone else" in launcher.read_text(encoding="utf-8"), False)
+
+            git_run("-C", str(wiki), "add", "-f", "--", "scripts/new_note.py")
+            git_run("-C", str(wiki), "-c", "user.name=Test", "-c", "user.email=t@example.com",
+                    "commit", "-q", "-m", "tracked")
+            ok, detail = apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("a tracked launcher is never overwritten", ok, False)
+    finally:
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
+
+
+# ---- the midnight schedule ------------------------------------------------------
+# Every case passes its own runner, so no test runs systemctl or schtasks. The unit files
+# go to a temporary folder and the Windows XML to a temporary brain's _local/.
+
+class Recorder:
+    """A runner that records each argv and answers from a table keyed by its verb (systemctl's or schtasks')."""
+
+    def __init__(self, answers=None):
+        self.calls, self.answers = [], answers or {}
+
+    def __call__(self, argv, **kw):
+        self.calls.append(list(argv))
+        key = argv[2] if argv[0] == "systemctl" else argv[1]
+        rc, out = self.answers.get(key, (0, ""))
+        return subprocess.CompletedProcess(argv, rc, out, "")
+
+
+def nightly_cases():
+    import xml.etree.ElementTree as ET
+    print("\nnightly schedule")
+    brain = pathlib.Path("/home/x/my brain")
+    wiki = pathlib.Path("/home/x/my wiki")
+    service = iv.nightly_service_text("/opt/my python/bin/python3", brain.as_posix(), wiki.as_posix(),
+                                      "/usr/bin:/opt/a b/bin")
+    case("service: ExecStart quotes python and the script",
+         'ExecStart="/opt/my python/bin/python3" "/home/x/my brain/scripts/nightly_digest.py"'
+         in service, True)
+    case("service: runs in the wiki", "WorkingDirectory=/home/x/my wiki" in service, True)
+    case("service: PATH is passed in quoted", 'Environment="PATH=/usr/bin:/opt/a b/bin"' in service, True)
+    case("service: oneshot", "Type=oneshot" in service, True)
+    pct = iv.nightly_service_text("/p/python", "/b/100%", "/w", "/usr/bin")
+    case("service: a percent sign is escaped for systemd", "/b/100%%/scripts" in pct, True)
+    timer = iv.nightly_timer_text()
+    case("timer: midnight in Pacific/Auckland",
+         "OnCalendar=*-*-* 00:00:00 Pacific/Auckland" in timer, True)
+    case("timer: runs a missed day on next boot", "Persistent=true" in timer, True)
+    case("timer: wanted by timers.target", "WantedBy=timers.target" in timer, True)
+
+    xml_text = iv.nightly_task_xml(r"C:\Program Files\Python\python.exe", r"C:\my brain",
+                                   r"C:\my wiki")
+    root = ET.fromstring(xml_text)
+    ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
+    case("windows XML: starts when available",
+         root.find("t:Settings/t:StartWhenAvailable", ns).text, "true")
+    case("windows XML: daily at 00:00",
+         root.find("t:Triggers/t:CalendarTrigger/t:StartBoundary", ns).text[-8:], "00:00:00")
+    case("windows XML: runs python on the script",
+         root.find("t:Actions/t:Exec/t:Command", ns).text, r"C:\Program Files\Python\python.exe")
+    case("windows XML: arguments quote the script path",
+         root.find("t:Actions/t:Exec/t:Arguments", ns).text, '"C:\\my brain\\scripts\\nightly_digest.py"')
+    case("windows XML: works in the wiki",
+         root.find("t:Actions/t:Exec/t:WorkingDirectory", ns).text, r"C:\my wiki")
+    saved_mode = iv.nightly_mode
+    iv.nightly_mode = lambda args: 7
+    try:
+        case("main dispatches --nightly to its mode", iv.main(["--nightly", "--check"]), 7)
+    finally:
+        iv.nightly_mode = saved_mode
+    case("schtasks create argv is exact",
+         iv.schtasks_create_argv(r"C:\x\task.xml"),
+         ["schtasks", "/Create", "/F", "/TN", "brain-nightly-digest", "/XML", r"C:\x\task.xml"])
+    shown = ET.tostring(root, encoding="unicode")
+    case("parse: a query naming this brain's script is found",
+         iv.task_query_points_at(shown, r"C:\my brain"), True)
+    case("parse: a query for another brain is not",
+         iv.task_query_points_at(shown, r"C:\other brain"), False)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp).resolve()
+        home(base)
+        brain_dir = base / "brain"
+        (brain_dir / "_local").mkdir(parents=True)
+        wiki_dir = base / "wiki"
+        (wiki_dir / "index.md").parent.mkdir(parents=True)
+        (wiki_dir / "index.md").write_text("# i\n", encoding="utf-8")
+        real_root = iv.ROOT
+        iv.ROOT = brain_dir
+        try:
+            units = base / "units"
+            rec = Recorder({"is-enabled": (1, "disabled\n")})
+            rows = iv.nightly_rows(wiki_dir, rec, windows=False, unit_dir=units)
+            case("linux: one row, pending on a bare machine", [r[1] for r in rows], [False])
+            ok, _ = rows[0][4]()
+            case("linux: apply succeeds", ok, True)
+            case("linux: the service file is written",
+                 (units / "brain-nightly-digest.service").is_file(), True)
+            case("linux: the timer file is written", (units / "brain-nightly-digest.timer").is_file(), True)
+            case("linux: apply reloads then enables the timer now",
+                 rec.calls[-2:], [["systemctl", "--user", "daemon-reload"],
+                                  ["systemctl", "--user", "enable", "--now", "brain-nightly-digest.timer"]])
+            rec2 = Recorder({"is-enabled": (0, "enabled\n")})
+            rows2 = iv.nightly_rows(wiki_dir, rec2, windows=False, unit_dir=units)
+            case("linux: a second check with files and enable in place is done", rows2[0][1], True)
+            (units / "brain-nightly-digest.timer").write_text("stale\n", encoding="utf-8")
+            rows3 = iv.nightly_rows(wiki_dir, rec2, windows=False, unit_dir=units)
+            case("linux: a stale timer file is pending", rows3[0][1], False)
+
+            rec_w = Recorder({"/Query": (1, "")})
+            rows_w = iv.nightly_rows(wiki_dir, rec_w, windows=True, unit_dir=units)
+            case("windows: one row, pending when the task is missing", rows_w[0][1], False)
+            ok, _ = rows_w[0][4]()
+            case("windows: apply reports success", ok, True)
+            xml_file = brain_dir / "_local" / "nightly-digest-task.xml"
+            case("windows: apply writes the XML in _local", xml_file.is_file(), True)
+            case("windows: the XML file is UTF-16 with a byte order mark",
+                 xml_file.read_bytes()[:2], b"\xff\xfe")
+            case("windows: apply runs schtasks create",
+                 rec_w.calls[-1], iv.schtasks_create_argv(str(xml_file)))
+            rec_ok = Recorder({"/Query": (0, iv.nightly_task_xml(sys.executable, brain_dir.as_posix(),
+                                                                 wiki_dir.as_posix()))})
+            rows_ok = iv.nightly_rows(wiki_dir, rec_ok, windows=True, unit_dir=units)
+            case("windows: a task pointing at this brain is done", rows_ok[0][1], True)
+            rec_other = Recorder({"/Query": (0, "<Command>other</Command>")})
+            rows_other = iv.nightly_rows(wiki_dir, rec_other, windows=True, unit_dir=units)
+            case("windows: a task pointing elsewhere is pending", rows_other[0][1], False)
+        finally:
+            iv.ROOT = real_root
 
 
 def stale_cases():
@@ -474,6 +661,219 @@ def matcher_cases():
            json.dumps(g["hooks"])]
     case("the brain's PII matcher covers MultiEdit", [("MultiEdit" in m) for m in pii], [True])
     case("the brain's PII matcher is the installer's", pii, [iv.PII_MATCHER])
+
+
+# ---- client repos ------------------------------------------------------------
+# Every case builds a temporary brain, a temporary wiki and temporary git repos.
+# ROOT is the temporary brain and BRAIN_WIKI names the temporary wiki, so the real
+# _local/, the real wiki and any real repo are never written.
+
+def git_run(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True)
+
+
+def commit_repo(path, add=()):
+    """A git repo with one commit; add lists paths to commit, forced (for tracked-file cases)."""
+    path = pathlib.Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    git_run("init", "-q", str(path))
+    for rel in add:
+        git_run("-C", str(path), "add", "-f", "--", rel)
+    git_run("-C", str(path), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+            "commit", "-q", "--allow-empty", "-m", "init")
+
+
+def exclude_text(repo):
+    out = git_run("-C", str(repo), "rev-parse", "--git-path", "info/exclude").stdout.strip()
+    path = pathlib.Path(out)
+    if not path.is_absolute():
+        path = pathlib.Path(repo) / path
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def ignored(repo, rel):
+    return git_run("-C", str(repo), "check-ignore", "-q", "--", rel).returncode == 0
+
+
+def client_repo_cases():
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    saved_git = {k: os.environ.get(k) for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME")}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            # The owner's global ignore file (~/.config/git/ignore) may already ignore the
+            # settings file, which would hide the exclude step. Git reads empty config here.
+            gitcfg = base / "gitconfig"
+            gitcfg.write_text("", encoding="utf-8")
+            os.environ["GIT_CONFIG_GLOBAL"] = str(gitcfg)
+            os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+            os.environ["XDG_CONFIG_HOME"] = str(base / "xdg")
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            (brain / ".claude").mkdir()
+            wiki = base / "wiki"
+            (wiki / "wiki" / "clients" / "alpha-co").mkdir(parents=True)
+            (wiki / "index.md").write_text("# index\n", encoding="utf-8")
+            iv.ROOT = brain
+            os.environ["BRAIN_WIKI"] = str(wiki)
+            registry = brain / "_local" / "client-repos.json"
+
+            print("client repo: the group")
+            group = iv.client_repo_group("C:/Users/Daru Broodryk/brain", "alpha-co")
+            back = json.loads(json.dumps(group))
+            case("the group matches the edit tools", back["matcher"], "Write|Edit|MultiEdit")
+            case("the group has a 5 second timeout", back["hooks"][0]["timeout"], 5)
+            case("a path with spaces is quoted and survives JSON",
+                 back["hooks"][0]["command"],
+                 'python "C:/Users/Daru Broodryk/brain/scripts/wiki_edit_gate.py" --client alpha-co')
+
+            print("client repo: apply")
+            repo = base / "work" / "acme-app"
+            commit_repo(repo)
+            settings = repo / ".claude" / "settings.local.json"
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--check"])
+            case("check on a fresh repo exits 1", code, 1)
+            case("check shows three pending steps", out.count("PENDING"), 3)
+            case("check writes nothing", settings.exists() or registry.exists(), False)
+
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--yes"])
+            case("apply exits 0", code, 0)
+            pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+            case("apply writes one PreToolUse group", len(pre), 1)
+            want = 'python "' + brain.as_posix() + '/scripts/wiki_edit_gate.py" --client alpha-co'
+            case("the group runs the gate for this client", pre[0]["hooks"][0]["command"], want)
+            case("settings.local.json is ignored by git", ignored(repo, ".claude/settings.local.json"), True)
+            case("the exclude file holds the line once",
+                 exclude_text(repo).splitlines().count(".claude/settings.local.json"), 1)
+            case("the registry maps the repo to the client",
+                 json.loads(registry.read_text(encoding="utf-8")),
+                 {repo.resolve().as_posix(): "alpha-co"})
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--check"])
+            case("check after apply exits 0", code, 0)
+            case("check after apply says fully installed", "fully installed." in out, True)
+
+            print("client repo: second run")
+            before = settings.read_bytes()
+            code, out = capture(["--client-repo", str(repo), "--client", "alpha-co", "--yes"])
+            case("a second apply exits 0", code, 0)
+            case("a second apply says nothing to do", "nothing to do." in out, True)
+            case("a second apply leaves the settings file as it was", settings.read_bytes(), before)
+            case("a second apply does not repeat the exclude line",
+                 exclude_text(repo).splitlines().count(".claude/settings.local.json"), 1)
+
+            print("client repo: other people's settings")
+            kept = base / "work" / "kept-app"
+            commit_repo(kept)
+            hand = {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}
+            old = {"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "timeout": 5,
+                   "command": 'python "old/scripts/wiki_edit_gate.py" --client beta-ltd'}]}
+            kept_settings = kept / ".claude" / "settings.local.json"
+            kept_settings.parent.mkdir(parents=True)
+            kept_settings.write_text(json.dumps({"model": "opus", "hooks": {"PreToolUse": [hand, old]}}),
+                                     encoding="utf-8")
+            code, _ = capture(["--client-repo", str(kept), "--client", "alpha-co", "--yes"])
+            data = json.loads(kept_settings.read_text(encoding="utf-8"))
+            case("apply keeps a hand-added group", data["hooks"]["PreToolUse"][0], hand)
+            case("apply replaces our old group for another client",
+                 [g["hooks"][0]["command"].endswith("--client alpha-co") for g in data["hooks"]["PreToolUse"][1:]],
+                 [True])
+            case("apply keeps other settings", data["model"], "opus")
+            case("apply exits 0 with a hand-added group", code, 0)
+
+            print("client repo: refusals")
+            code, out = capture(["--client-repo", str(base / "work" / "nope"), "--client", "alpha-co", "--yes"])
+            case("a path that is not a repo exits 2", code, 2)
+            plain = base / "plain"
+            plain.mkdir()
+            code, out = capture(["--client-repo", str(plain), "--client", "alpha-co", "--yes"])
+            case("a folder outside any repo exits 2", code, 2)
+            sub = repo / "src"
+            sub.mkdir()
+            code, out = capture(["--client-repo", str(sub), "--client", "alpha-co", "--yes"])
+            case("a subfolder of a repo exits 2", code, 2)
+            case("the subfolder refusal says it is not the top", "top" in out, True)
+            unknown = base / "work" / "unknown-app"
+            commit_repo(unknown)
+            code, out = capture(["--client-repo", str(unknown), "--client", "no-such", "--yes"])
+            case("an unknown client exits 2", code, 2)
+            case("an unknown client writes no settings",
+                 (unknown / ".claude" / "settings.local.json").exists(), False)
+            case("an unknown client names the wiki check", "not in the wiki" in out, True)
+            try:
+                code, out = capture(["--client-repo", str(repo), "--client-repo-typo"])
+            except SystemExit as err:
+                code = err.code
+            case("an unknown flag exits 2", code, 2)
+            code, out = capture(["--client-repo", str(repo)])
+            case("--client-repo without --client exits 2", code, 2)
+
+            print("client repo: git worktree")
+            wt = base / "work" / "acme-wt"
+            git_run("-C", str(repo), "worktree", "add", "-q", "-b", "wt-branch", str(wt))
+            code, out = capture(["--client-repo", str(wt), "--client", "alpha-co", "--yes"])
+            case("a worktree can be guarded", code, 0)
+            case("the worktree's settings file is written",
+                 (wt / ".claude" / "settings.local.json").is_file(), True)
+            case("the exclude line is written to the shared exclude file",
+                 ".claude/settings.local.json" in exclude_text(repo).splitlines(), True)
+            case("the registry keys the worktree path",
+                 wt.resolve().as_posix() in json.loads(registry.read_text(encoding="utf-8")), True)
+
+            print("client repo: a committed settings file")
+            tracked = base / "work" / "tracked-app"
+            commit_repo(tracked)
+            (tracked / ".claude").mkdir()
+            (tracked / ".claude" / "settings.local.json").write_text('{"hooks": {}}\n', encoding="utf-8")
+            git_run("-C", str(tracked), "add", "-f", "--", ".claude/settings.local.json")
+            git_run("-C", str(tracked), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                    "commit", "-q", "-m", "track settings")
+            before = (tracked / ".claude" / "settings.local.json").read_bytes()
+            code, out = capture(["--client-repo", str(tracked), "--client", "alpha-co", "--yes"])
+            case("a committed settings file exits 1", code, 1)
+            case("a committed settings file is left as it was",
+                 (tracked / ".claude" / "settings.local.json").read_bytes(), before)
+
+            print("client repo: already ignored by git")
+            seen = base / "work" / "seen-app"
+            commit_repo(seen)
+            ignore_file = base / "global-ignore"
+            ignore_file.write_text(".claude/settings.local.json\n", encoding="utf-8")
+            gitcfg.write_text("[core]\n\texcludesFile = " + ignore_file.as_posix() + "\n", encoding="utf-8")
+            code, out = capture(["--client-repo", str(seen), "--client", "alpha-co", "--yes"])
+            case("apply exits 0 when git already ignores the file", code, 0)
+            case("no exclude line is added when git already ignores it",
+                 ".claude/settings.local.json" in exclude_text(seen).splitlines(), False)
+            case("the settings file is still written",
+                 (seen / ".claude" / "settings.local.json").is_file(), True)
+            gitcfg.write_text("", encoding="utf-8")
+
+            print("client repo: malformed files")
+            bad = base / "work" / "bad-app"
+            commit_repo(bad)
+            (bad / ".claude").mkdir()
+            (bad / ".claude" / "settings.local.json").write_text("{bad", encoding="utf-8")
+            code, out = capture(["--client-repo", str(bad), "--client", "alpha-co", "--yes"])
+            case("malformed settings exit 1", code, 1)
+            case("malformed settings are left alone",
+                 (bad / ".claude" / "settings.local.json").read_text(encoding="utf-8"), "{bad")
+            registry.write_text("{bad", encoding="utf-8")
+            fresh = base / "work" / "fresh-app"
+            commit_repo(fresh)
+            code, out = capture(["--client-repo", str(fresh), "--client", "alpha-co", "--yes"])
+            case("a malformed registry exits 1", code, 1)
+            case("a malformed registry is left alone", registry.read_text(encoding="utf-8"), "{bad")
+    finally:
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
+        for name, value in saved_git.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def main():
@@ -1111,10 +1511,13 @@ def main():
 
     iv.repo_access, iv.remote_head = real_access, real_remote
     wiki_cases()
+    launcher_cases()
     stale_cases()
     verify_cases()
     jev_cases()
     matcher_cases()
+    client_repo_cases()
+    nightly_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
     print("\ntest_install_vault: " + str(total - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")

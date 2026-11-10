@@ -68,6 +68,7 @@ import time
 # so this works however the script was started.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wiki_root  # noqa: E402
+import wiki_edit_gate  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS_PATH = ".githooks"
@@ -1637,6 +1638,55 @@ def apply_wiki_git(wiki, old):
                         else "FAILED: " + ", ".join(failed))
 
 
+NOTE_LAUNCHER = "scripts/new_note.py"
+
+
+def launcher_text(brain):
+    """The two-line launcher the wiki runs as `python scripts/new_note.py`. brain is a posix path."""
+    return ("# Written by install_vault.py --wiki. It runs the brain's new_note.py; do not edit.\n"
+            "import pathlib, runpy\n"
+            "runpy.run_path(str(pathlib.Path(" + repr(brain) + ") / 'scripts' / 'new_note.py'), "
+            "run_name='__main__')\n")
+
+
+def launcher_tracked(wiki):
+    return bool(git_in(wiki, "ls-files", "--", NOTE_LAUNCHER).stdout.strip())
+
+
+def launcher_ignored(wiki):
+    return git_in(wiki, "check-ignore", "-q", "--", NOTE_LAUNCHER).returncode == 0
+
+
+def step_note_launcher(wiki, old):
+    path = wiki / NOTE_LAUNCHER
+    have = path.read_text(encoding="utf-8") if path.is_file() else None
+    done = (have == launcher_text(ROOT.as_posix()) and launcher_ignored(wiki)
+            and not launcher_tracked(wiki))
+    return done, (
+        "launcher in place, current, and ignored" if done else "launcher missing, stale, or not ignored",
+        "write " + NOTE_LAUNCHER + " for this brain and ignore scripts/ through the wiki's exclude file")
+
+
+def apply_note_launcher(wiki, old):
+    if launcher_tracked(wiki):
+        return False, NOTE_LAUNCHER + " is tracked in git; left alone"
+    path = wiki / NOTE_LAUNCHER
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(launcher_text(ROOT.as_posix()), encoding="utf-8", newline="\n")
+    if not launcher_ignored(wiki):
+        exclude = exclude_file(wiki)
+        if exclude is None:
+            return False, "cannot find the wiki's exclude file"
+        lines = exclude.read_text(encoding="utf-8").splitlines() if exclude.is_file() else []
+        if "scripts/" not in lines:
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            with open(exclude, "a", encoding="utf-8", newline="\n") as handle:
+                if lines and lines[-1] != "":
+                    handle.write("\n")
+                handle.write("scripts/\n")
+    return True, "launcher written, scripts/ ignored"
+
+
 # Each step: (label, state(wiki), apply(wiki)). The label is shown in the report.
 WIKI_STEPS = (
     ("wiki pointer", step_wiki_pointer, apply_wiki_pointer),
@@ -1644,6 +1694,7 @@ WIKI_STEPS = (
     ("wiki hooks", step_wiki_hooks, apply_wiki_hooks),
     ("brain for wiki", step_brain_for_wiki, apply_brain_for_wiki),
     ("wiki git", step_wiki_git, apply_wiki_git),
+    ("new_note launcher", step_note_launcher, apply_note_launcher),
 )
 
 
@@ -1720,6 +1771,358 @@ def report(rows):
             print(" " * 27 + "will " + what)
 
 
+# ---- client repos ---------------------------------------------------------------
+# `--client-repo PATH --client SLUG` guards one client's git repo: a PreToolUse gate on
+# the edit tools that checks every edit against that client's names only. It is its own
+# mode and never touches the global settings. The repo's settings file is ignored through
+# the git exclude file, so nothing committed changes.
+
+CLIENT_HOOK_TIMEOUT = 5
+LOCAL_SETTINGS = ".claude/settings.local.json"
+REGISTRY_FILE = "client-repos.json"
+
+
+def client_repo_group(brain, slug):
+    """The one PreToolUse group a client repo gets. brain is a forward-slash path."""
+    return {"matcher": EDIT_MATCHER,
+            "hooks": [{"type": "command", "timeout": CLIENT_HOOK_TIMEOUT,
+                       "command": f'python "{brain}/scripts/wiki_edit_gate.py" --client {slug}'}]}
+
+
+def git_out(repo, *args):
+    proc = subprocess.run(["git", "-C", str(repo)] + list(args), capture_output=True, text=True)
+    return proc.returncode == 0, proc.stdout.strip()
+
+
+def is_repo_top(repo):
+    ok, top = git_out(repo, "rev-parse", "--show-toplevel")
+    return ok and bool(top) and pathlib.Path(top).resolve() == repo.resolve()
+
+
+def exclude_file(repo):
+    """The exclude file git uses for this repo, shared by worktrees; None if git cannot say."""
+    ok, out = git_out(repo, "rev-parse", "--git-path", "info/exclude")
+    if not ok or not out:
+        return None
+    path = pathlib.Path(out)
+    return path if path.is_absolute() else pathlib.Path(repo) / path
+
+
+def is_tracked(repo):
+    return git_out(repo, "ls-files", "--error-unmatch", "--", LOCAL_SETTINGS)[0]
+
+
+def is_ignored(repo):
+    return subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", "--", LOCAL_SETTINGS],
+                          capture_output=True).returncode == 0
+
+
+def registry_path():
+    return ROOT / "_local" / REGISTRY_FILE
+
+
+def settings_row(repo, slug):
+    """Step 1: the gate group in the repo's settings.local.json. Other groups are kept."""
+    label = "client settings"
+    path = repo / LOCAL_SETTINGS
+    if is_tracked(repo):
+        return (label, False, LOCAL_SETTINGS + " is committed in this repo; not edited",
+                "nothing: a committed file is never edited", lambda: (False, "committed; not edited"))
+    try:
+        existing = load_json(path)
+    except (OSError, ValueError):
+        return (label, False, "malformed, left alone: " + str(path),
+                "nothing: fix or remove the file first", lambda: (False, "malformed; left alone"))
+    merged = merge_hooks(existing, {"PreToolUse": [client_repo_group(ROOT.as_posix(), slug)]})
+    if merged == existing:
+        return (label, True, "gate for " + slug + " is in place", "", None)
+
+    def apply():
+        backup = write_json(path, merged)
+        return True, "wrote " + str(path) + (" (backup " + backup + ")" if backup else "")
+    return (label, False, "gate for " + slug + " is missing",
+            "write the gate group into " + str(path), apply)
+
+
+def exclude_row(repo):
+    """Step 2: the settings file is ignored, through the exclude file unless git already ignores it."""
+    label = "git ignore"
+    if is_ignored(repo):
+        return (label, True, LOCAL_SETTINGS + " is already ignored", "", None)
+    path = exclude_file(repo)
+    if path is None:
+        return (label, False, "git cannot say where the exclude file is", "nothing",
+                lambda: (False, "no exclude file"))
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    if LOCAL_SETTINGS in [line.strip() for line in lines]:
+        return (label, True, "listed in " + str(path), "", None)
+
+    def apply():
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lead = "" if not text or text.endswith("\n") else "\n"
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text + lead + LOCAL_SETTINGS + "\n")
+        return True, "added " + LOCAL_SETTINGS + " to " + str(path)
+    return (label, False, LOCAL_SETTINGS + " is not ignored", "add it to " + str(path), apply)
+
+
+def registry_row(repo, slug):
+    """Step 3: _local/client-repos.json maps this repo's path to the client slug."""
+    label = "client registry"
+    path = registry_path()
+    key = repo.resolve().as_posix()
+    try:
+        data = load_json(path)
+    except (OSError, ValueError):
+        return (label, False, "malformed, left alone: " + str(path),
+                "nothing: fix the file first", lambda: (False, "malformed; left alone"))
+    if data.get(key) == slug:
+        return (label, True, key + " is " + slug, "", None)
+
+    def apply():
+        updated = dict(data)
+        updated[key] = slug
+        write_json(path, updated)
+        return True, "recorded " + key + " as " + slug
+    return (label, False, key + " is not recorded", "record it in " + str(path), apply)
+
+
+def client_repo_mode(args):
+    repo = pathlib.Path(args.client_repo).expanduser().resolve()
+    slug = args.client
+    if not repo.is_dir() or not is_repo_top(repo):
+        print("not the top of a git repo: " + args.client_repo)
+        return 2
+    wiki = find_wiki(None)
+    if wiki is None:
+        print("wiki: not configured. Pass --wiki PATH first, the wiki clone that holds index.md.")
+        return 2
+    data, _ = wiki_edit_gate._load_names(wiki)
+    if slug not in wiki_edit_gate.clients(wiki, data):
+        print("client " + slug + " is not in the wiki (no wiki/clients/" + slug +
+              "/ folder and no _ai/client-names.json entry).")
+        return 2
+
+    rows = [settings_row(repo, slug), exclude_row(repo), registry_row(repo, slug)]
+    print("client repo: " + str(repo))
+    print("client: " + slug)
+    report(rows)
+    pending = [r for r in rows if not r[1]]
+    if args.check:
+        print("\n" + (str(len(pending)) + " step(s) pending." if pending else "fully installed."))
+        return 1 if pending else 0
+    if args.dry_run:
+        return 0
+    if not pending:
+        print("\nnothing to do.")
+        return 0
+    if not args.yes:
+        answer = input("\napply " + str(len(pending)) + " step(s)? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("nothing applied.")
+            return 1
+    print()
+    all_ok = True
+    for label, _, _, _, apply_step in pending:
+        ok, detail = apply_step()
+        print("  " + ("done" if ok else "FAILED") + "  " + label + ": " + detail)
+        all_ok = all_ok and ok
+    return 0 if all_ok else 1
+
+
+# ---- the midnight schedule ------------------------------------------------------
+# `--nightly` schedules scripts/nightly_digest.py at midnight, Pacific/Auckland. Linux: a
+# systemd user service and timer. Windows: a Task Scheduler task made from an XML file,
+# because the XML can say StartWhenAvailable (a machine off at midnight runs on next wake).
+# It is its own mode: no global step, no settings file. The unit text and the command
+# lines are pure functions, so tests check them without running systemctl or schtasks.
+
+NIGHTLY_NAME = "brain-nightly-digest"
+NIGHTLY_TIMER = NIGHTLY_NAME + ".timer"
+NIGHTLY_SERVICE = NIGHTLY_NAME + ".service"
+NIGHTLY_XML = "nightly-digest-task.xml"
+TASK_START = "2026-01-01T00:00:00"
+
+
+def _systemd_quote(text):
+    return '"' + text.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _systemd_plain(text):
+    return text.replace("%", "%%")
+
+
+def nightly_service_text(python, brain, wiki, path_env):
+    """The service unit. brain and wiki are plain paths; path_env is the PATH to pass on."""
+    script = brain + "/scripts/nightly_digest.py"
+    return ("[Unit]\n"
+            "Description=Brain nightly digest: reads the day's transcripts and updates the wiki\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            "ExecStart=" + _systemd_quote(python) + " " + _systemd_quote(script) + "\n"
+            "WorkingDirectory=" + _systemd_plain(wiki) + "\n"
+            "Environment=" + _systemd_quote("PATH=" + path_env) + "\n")
+
+
+def nightly_timer_text():
+    return ("[Unit]\n"
+            "Description=Run the brain nightly digest at midnight, Pacific/Auckland\n\n"
+            "[Timer]\n"
+            "OnCalendar=*-*-* 00:00:00 Pacific/Auckland\n"
+            "Persistent=true\n\n"
+            "[Install]\n"
+            "WantedBy=timers.target\n")
+
+
+def windows_script(brain):
+    """The digest script path as Windows spells it, from a brain folder."""
+    return str(pathlib.PureWindowsPath(brain, "scripts", "nightly_digest.py"))
+
+
+def nightly_task_xml(python, brain, wiki):
+    """The Task Scheduler XML: daily at midnight, runs when available, a 2 hour limit."""
+    from xml.sax.saxutils import escape
+    return ('<?xml version="1.0" encoding="UTF-16"?>\n'
+            '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+            '  <RegistrationInfo>\n'
+            '    <Description>Brain nightly digest: reads the day\'s transcripts and updates the wiki at midnight.</Description>\n'
+            '  </RegistrationInfo>\n'
+            '  <Triggers>\n'
+            '    <CalendarTrigger>\n'
+            '      <StartBoundary>' + TASK_START + '</StartBoundary>\n'
+            '      <Enabled>true</Enabled>\n'
+            '      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>\n'
+            '    </CalendarTrigger>\n'
+            '  </Triggers>\n'
+            '  <Principals>\n'
+            '    <Principal id="Author">\n'
+            '      <LogonType>InteractiveToken</LogonType>\n'
+            '      <RunLevel>LeastPrivilege</RunLevel>\n'
+            '    </Principal>\n'
+            '  </Principals>\n'
+            '  <Settings>\n'
+            '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n'
+            '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n'
+            '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n'
+            '    <StartWhenAvailable>true</StartWhenAvailable>\n'
+            '    <Enabled>true</Enabled>\n'
+            '    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>\n'
+            '  </Settings>\n'
+            '  <Actions Context="Author">\n'
+            '    <Exec>\n'
+            '      <Command>' + escape(python) + '</Command>\n'
+            '      <Arguments>' + escape('"' + windows_script(brain) + '"') + '</Arguments>\n'
+            '      <WorkingDirectory>' + escape(wiki) + '</WorkingDirectory>\n'
+            '    </Exec>\n'
+            '  </Actions>\n'
+            '</Task>\n')
+
+
+def schtasks_create_argv(xml_path):
+    return ["schtasks", "/Create", "/F", "/TN", NIGHTLY_NAME, "/XML", xml_path]
+
+
+def task_query_points_at(text, brain):
+    """True when a schtasks /XML query names this brain's digest script."""
+    return windows_script(brain) in text
+
+
+def nightly_rows(wiki, runner=subprocess.run, windows=None, unit_dir=None):
+    """The one schedule row, shaped like the other report rows. runner runs systemctl or schtasks."""
+    if windows is None:
+        windows = os.name == "nt"
+    brain = str(ROOT)
+    if windows:
+        xml_path = ROOT / "_local" / NIGHTLY_XML
+        query = runner(["schtasks", "/Query", "/TN", NIGHTLY_NAME, "/XML"],
+                       capture_output=True, text=True)
+        done = query.returncode == 0 and task_query_points_at(query.stdout or "", brain)
+
+        def apply():
+            xml_path.parent.mkdir(parents=True, exist_ok=True)
+            xml_path.write_bytes(nightly_task_xml(sys.executable, brain, str(wiki)).encode("utf-16"))
+            res = runner(schtasks_create_argv(str(xml_path)), capture_output=True, text=True)
+            if res.returncode != 0:
+                return False, "schtasks /Create failed: " + last_line(res)
+            return True, "task " + NIGHTLY_NAME + " created at midnight"
+
+        return [("nightly schedule", done,
+                 "task " + ("points at this brain" if done else "missing or points elsewhere"),
+                 "create the Task Scheduler task " + NIGHTLY_NAME + " at 00:00 from " + str(xml_path),
+                 apply)]
+
+    units = pathlib.Path(unit_dir) if unit_dir else pathlib.Path.home() / ".config" / "systemd" / "user"
+    texts = {NIGHTLY_SERVICE: nightly_service_text(sys.executable, brain, str(wiki),
+                                                   os.environ.get("PATH", "")),
+             NIGHTLY_TIMER: nightly_timer_text()}
+    files_ok = all((units / name).is_file() and (units / name).read_text(encoding="utf-8") == text
+                   for name, text in texts.items())
+    try:
+        enabled_check = runner(["systemctl", "--user", "is-enabled", NIGHTLY_TIMER],
+                               capture_output=True, text=True)
+        enabled = enabled_check.returncode == 0 and (enabled_check.stdout or "").strip() == "enabled"
+    except OSError:
+        enabled = False
+    done = files_ok and enabled
+
+    def apply():
+        units.mkdir(parents=True, exist_ok=True)
+        for name, text in texts.items():
+            with open(units / name, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+        for argv in (["systemctl", "--user", "daemon-reload"],
+                     ["systemctl", "--user", "enable", "--now", NIGHTLY_TIMER]):
+            try:
+                res = runner(argv, capture_output=True, text=True)
+            except OSError as err:
+                return False, "systemctl not available: " + str(err)
+            if res.returncode != 0:
+                return False, " ".join(argv) + " failed: " + last_line(res)
+        return True, "timer " + NIGHTLY_TIMER + " enabled for midnight"
+
+    return [("nightly schedule", done,
+             "timer " + ("enabled and current" if done else "missing, stale, or not enabled"),
+             "write " + NIGHTLY_SERVICE + " and " + NIGHTLY_TIMER + " in " + str(units) +
+             " and enable the timer", apply)]
+
+
+def last_line(res):
+    text = ((res.stderr or "") + (res.stdout or "")).strip()
+    return text.splitlines()[-1] if text else "no output"
+
+
+def nightly_mode(args, runner=subprocess.run, windows=None, unit_dir=None):
+    wiki = find_wiki(None)
+    if wiki is None:
+        print("wiki: not configured. Pass --wiki PATH first, the wiki clone that holds index.md.")
+        return 2
+    rows = nightly_rows(wiki, runner, windows, unit_dir)
+    print("nightly digest schedule (wiki " + str(wiki) + "):")
+    report(rows)
+    pending = [r for r in rows if not r[1]]
+    if args.check:
+        print("\n" + (str(len(pending)) + " step(s) pending." if pending else "fully installed."))
+        return 1 if pending else 0
+    if args.dry_run:
+        return 0
+    if not pending:
+        print("\nnothing to do.")
+        return 0
+    if not args.yes:
+        answer = input("\napply " + str(len(pending)) + " step(s)? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("nothing applied.")
+            return 1
+    print()
+    all_ok = True
+    for label, _, _, _, apply_step in pending:
+        ok, detail = apply_step()
+        print("  " + ("done" if ok else "FAILED") + "  " + label + ": " + detail)
+        all_ok = all_ok and ok
+    return 0 if all_ok else 1
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Install this vault on this machine.")
     ap.add_argument("--check", action="store_true", help="report state, change nothing")
@@ -1739,11 +2142,26 @@ def main(argv):
     ap.add_argument("--jev-mode", choices=JEV_MODES, metavar="off|meta",
                     help="set the Jev egress policy in _local/jev-policy.json. Without it, a "
                          "missing file is created as off and an existing one is left alone")
+    ap.add_argument("--client-repo", metavar="PATH",
+                    help="guard one client's git repo with the wiki edit gate (needs --client)")
+    ap.add_argument("--client", metavar="SLUG",
+                    help="the client whose names the --client-repo edits must not carry")
+    ap.add_argument("--nightly", action="store_true",
+                    help="schedule the midnight nightly digest (needs a configured wiki)")
     args = ap.parse_args(argv)
 
     if args.detect:
         print(json.dumps(detect(), indent=2, sort_keys=True))
         return 0
+
+    if args.client_repo or args.client:
+        if not (args.client_repo and args.client):
+            print("--client-repo PATH and --client SLUG go together.")
+            return 2
+        return client_repo_mode(args)
+
+    if args.nightly:
+        return nightly_mode(args)
 
     if args.bindings is not None:
         values = detect()

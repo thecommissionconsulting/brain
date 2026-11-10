@@ -45,7 +45,7 @@ ZERO = "0" * 40
 
 # Topic-branch prefixes from vault-git.md section Model, plus migrate/ which the
 # obsidian-legacy migration is actively using and the note predates.
-BRANCH_OK = re.compile(r"^(main|capture|(knowledge|client|internal|chore|migrate|feature)/.+)$")
+BRANCH_OK = re.compile(r"^(main|capture|(knowledge|client|internal|chore|migrate|feature|digest)/.+)$")
 
 errors = warnings = 0
 
