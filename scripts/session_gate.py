@@ -4,8 +4,8 @@
 on SessionStart (see `.claude/settings.json`) so a session opens knowing the live state
 instead of discovering it in CI after a push.
 
-Only the sub-second gates run here — `check_maps.py` (~0.8s, run from the wiki) and
-`check_schema_sync.py` (~0.5s, run from the brain) — plus the wiki's `index.md` byte
+Only the sub-second gates run here — `check_maps.py` (~0.8s, run from the wiki),
+`check_schema_sync.py` (~0.5s) and `check_gates.py` (run from the brain) — plus the wiki's `index.md` byte
 budget, read straight from `check_links.py` so the number is never duplicated. With no
 wiki on this machine, the maps and budget lines are replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s,
 `check_links.py` 2.1s) stay in CI; they are too slow to pay for on every session.
@@ -60,9 +60,11 @@ def main():
         notes.append("wiki: not configured (python " + BRAIN.as_posix()
                      + "/scripts/install_vault.py --wiki <path>)")
         gate("schema", "check_schema_sync.py", BRAIN, parts, red)
+        gate("gates", "check_gates.py", BRAIN, parts, red)
     else:
         gate("maps", "check_maps.py", wiki, parts, red)
         gate("schema", "check_schema_sync.py", BRAIN, parts, red)
+        gate("gates", "check_gates.py", BRAIN, parts, red)
         size, limit = budget(wiki)
         if size is not None and limit:
             over = size > limit

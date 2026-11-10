@@ -10,6 +10,8 @@ Every call passes the PII scan (patterns.scan) first. The API key comes only fro
 TYPESAFE_API_KEY environment variable and is never printed, logged or written to a file.
 send() enforces a total deadline. Decisions are logged with a SHA-256 of the sent text,
 never the text itself. Logging never raises.
+
+Enforces R-56 for every call to Jev: only metadata is sent, the policy mode decides, and the PII scan runs first.
 """
 import datetime
 import hashlib

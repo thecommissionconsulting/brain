@@ -10,3 +10,4 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install pyyaml
       - run: python scripts/check_schema_sync.py
+      - run: python scripts/check_gates.py

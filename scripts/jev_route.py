@@ -33,6 +33,8 @@ Usage, from the repo root:
 
 Exit codes: 0 routed, 2 bad input, no key, policy off or blocked by the PII scan,
 3 the Jev call failed.
+
+Enforces R-56 for Build routing: only a short summary of the Build is sent, and only through jev_client.
 """
 import argparse
 import json
