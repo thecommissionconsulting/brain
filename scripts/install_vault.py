@@ -1638,6 +1638,55 @@ def apply_wiki_git(wiki, old):
                         else "FAILED: " + ", ".join(failed))
 
 
+NOTE_LAUNCHER = "scripts/new_note.py"
+
+
+def launcher_text(brain):
+    """The two-line launcher the wiki runs as `python scripts/new_note.py`. brain is a posix path."""
+    return ("# Written by install_vault.py --wiki. It runs the brain's new_note.py; do not edit.\n"
+            "import pathlib, runpy\n"
+            "runpy.run_path(str(pathlib.Path(" + repr(brain) + ") / 'scripts' / 'new_note.py'), "
+            "run_name='__main__')\n")
+
+
+def launcher_tracked(wiki):
+    return bool(git_in(wiki, "ls-files", "--", NOTE_LAUNCHER).stdout.strip())
+
+
+def launcher_ignored(wiki):
+    return git_in(wiki, "check-ignore", "-q", "--", NOTE_LAUNCHER).returncode == 0
+
+
+def step_note_launcher(wiki, old):
+    path = wiki / NOTE_LAUNCHER
+    have = path.read_text(encoding="utf-8") if path.is_file() else None
+    done = (have == launcher_text(ROOT.as_posix()) and launcher_ignored(wiki)
+            and not launcher_tracked(wiki))
+    return done, (
+        "launcher in place, current, and ignored" if done else "launcher missing, stale, or not ignored",
+        "write " + NOTE_LAUNCHER + " for this brain and ignore scripts/ through the wiki's exclude file")
+
+
+def apply_note_launcher(wiki, old):
+    if launcher_tracked(wiki):
+        return False, NOTE_LAUNCHER + " is tracked in git; left alone"
+    path = wiki / NOTE_LAUNCHER
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(launcher_text(ROOT.as_posix()), encoding="utf-8", newline="\n")
+    if not launcher_ignored(wiki):
+        exclude = exclude_file(wiki)
+        if exclude is None:
+            return False, "cannot find the wiki's exclude file"
+        lines = exclude.read_text(encoding="utf-8").splitlines() if exclude.is_file() else []
+        if "scripts/" not in lines:
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            with open(exclude, "a", encoding="utf-8", newline="\n") as handle:
+                if lines and lines[-1] != "":
+                    handle.write("\n")
+                handle.write("scripts/\n")
+    return True, "launcher written, scripts/ ignored"
+
+
 # Each step: (label, state(wiki), apply(wiki)). The label is shown in the report.
 WIKI_STEPS = (
     ("wiki pointer", step_wiki_pointer, apply_wiki_pointer),
@@ -1645,6 +1694,7 @@ WIKI_STEPS = (
     ("wiki hooks", step_wiki_hooks, apply_wiki_hooks),
     ("brain for wiki", step_brain_for_wiki, apply_brain_for_wiki),
     ("wiki git", step_wiki_git, apply_wiki_git),
+    ("new_note launcher", step_note_launcher, apply_note_launcher),
 )
 
 

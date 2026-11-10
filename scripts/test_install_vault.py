@@ -92,7 +92,7 @@ def wiki_cases():
 
             code, out = capture(["--wiki", str(wiki), "--wiki-only", "--dry-run"])
             case("dry-run exits 0", code, 0)
-            case("dry-run lists the five wiki steps", out.count("PENDING"), 5)
+            case("dry-run lists the six wiki steps", out.count("PENDING"), 6)
             case("dry-run writes nothing", (brain / "_local" / "brain.json").exists(), False)
 
             code, out = capture(["--wiki", str(wiki), "--wiki-only", "--check"])
@@ -212,6 +212,74 @@ def wiki_cases():
             case("a brain outside home is an absolute import",
                  line, "@" + (base / "my brain" / "CLAUDE.md").as_posix())
             case("a space in that path is warned about", "space" in warn, True)
+    finally:
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
+
+
+def launcher_cases():
+    """The wiki's scripts/new_note.py launcher: written, ignored, idempotent, never over a tracked file."""
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            (brain / ".claude").mkdir()
+            wiki = make_wiki(base)
+            git_run("-C", str(wiki), "-c", "user.name=Test", "-c", "user.email=t@example.com",
+                    "commit", "-q", "-m", "fixture")
+            iv.ROOT = brain
+            os.environ["BRAIN_WIKI"] = str(base / "no-such-wiki")
+            launcher = wiki / "scripts" / "new_note.py"
+
+            label, state, apply_step = next(s for s in iv.WIKI_STEPS if s[0] == "new_note launcher")
+            done, _ = state(wiki, iv.wiki_snapshot(wiki))
+            case("launcher step is pending on a bare wiki", done, False)
+            ok, _ = apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("launcher apply succeeds", ok, True)
+            case("launcher file is written", launcher.is_file(), True)
+            case("launcher names the brain's new_note.py",
+                 brain.as_posix() + "/scripts" in launcher.read_text(encoding="utf-8")
+                 or repr(brain.as_posix()) in launcher.read_text(encoding="utf-8"), True)
+            case("scripts/ is ignored through info/exclude",
+                 git_run("-C", str(wiki), "check-ignore", "-q", "--", "scripts/new_note.py").returncode,
+                 0)
+            case("the committed .gitignore is not edited",
+                 (wiki / ".gitignore").exists(), False)
+            case("the wiki stays clean after the launcher",
+                 git_run("-C", str(wiki), "status", "--porcelain").stdout.strip(), "")
+            done, _ = state(wiki, iv.wiki_snapshot(wiki))
+            case("launcher step is done after apply", done, True)
+            apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("a second apply adds one scripts/ line only",
+                 exclude_text(wiki).splitlines().count("scripts/"), 1)
+            iv.ROOT = ROOT
+            apply_step(wiki, iv.wiki_snapshot(wiki))
+            iv.ROOT = brain
+            res = subprocess.run([sys.executable, str(launcher), "--help"], cwd=str(wiki),
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 env=dict(os.environ, BRAIN_WIKI=str(wiki)))
+            case("the launcher runs new_note.py (--help exits 0)", res.returncode, 0)
+            if res.returncode != 0:
+                print(res.stdout + res.stderr)
+
+            launcher.write_text("print('someone else')\n", encoding="utf-8")
+            done, _ = state(wiki, iv.wiki_snapshot(wiki))
+            case("a stale launcher is pending", done, False)
+            apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("apply rewrites a stale launcher",
+                 "someone else" in launcher.read_text(encoding="utf-8"), False)
+
+            git_run("-C", str(wiki), "add", "-f", "--", "scripts/new_note.py")
+            git_run("-C", str(wiki), "-c", "user.name=Test", "-c", "user.email=t@example.com",
+                    "commit", "-q", "-m", "tracked")
+            ok, detail = apply_step(wiki, iv.wiki_snapshot(wiki))
+            case("a tracked launcher is never overwritten", ok, False)
     finally:
         iv.ROOT = saved_root
         if saved_env is None:
@@ -1324,6 +1392,7 @@ def main():
 
     iv.repo_access, iv.remote_head = real_access, real_remote
     wiki_cases()
+    launcher_cases()
     stale_cases()
     verify_cases()
     jev_cases()
