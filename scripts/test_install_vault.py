@@ -111,7 +111,13 @@ def wiki_cases():
             bl_path = brain / ".claude" / "settings.local.json"
             wl = json.loads(wl_path.read_text(encoding="utf-8"))
             cmds = [h["command"] for ev in wl["hooks"].values() for g in ev for h in g["hooks"]]
-            case("step 3 wires three gates", len(cmds), 3)
+            case("step 3 wires four gates", len(cmds), 4)
+            pre = wl["hooks"]["PreToolUse"]
+            case("step 3 wires two PreToolUse groups, PII then the edit gate",
+                 [g["matcher"] for g in pre], [iv.PII_MATCHER, iv.EDIT_MATCHER])
+            case("the edit gate has a 5 second timeout and names the wiki gate",
+                 pre[1]["hooks"][0].get("timeout") == 5
+                 and "wiki_edit_gate.py" in pre[1]["hooks"][0]["command"], True)
             case("step 3 wires the session gate",
                  any("session_gate.py" in c for c in cmds), True)
             case("step 3 passes --root to the review gate",
@@ -188,10 +194,10 @@ def wiki_cases():
         case("a path with spaces keeps the hook JSON valid",
              json.loads(json.dumps(entries)), entries)
         case("the review gate quotes the wiki path",
-             f'--root "{win_wiki}"' in entries["Stop"]["hooks"][0]["command"], True)
+             f'--root "{win_wiki}"' in entries["Stop"][0]["hooks"][0]["command"], True)
         case("the session gate quotes the brain path",
              f'python "{win_brain}/scripts/session_gate.py"'
-             in entries["SessionStart"]["hooks"][0]["command"], True)
+             in entries["SessionStart"][0]["hooks"][0]["command"], True)
         case("a drive-letter deny rule is absolute",
              iv.absolute_read(win_wiki, "raw/**"),
              "Read(//c/Users/Daru Broodryk/wiki/raw/**)")
@@ -206,6 +212,130 @@ def wiki_cases():
             case("a brain outside home is an absolute import",
                  line, "@" + (base / "my brain" / "CLAUDE.md").as_posix())
             case("a space in that path is warned about", "space" in warn, True)
+    finally:
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
+
+
+def stale_cases():
+    """Old paths the installer wrote are removed; the owner's own paths stay.
+
+    The old brain, old wiki, and old brain.root are set up as they were before, and
+    the apply must read them before it rewrites the pointer and git's brain.root.
+    """
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            (brain / ".claude").mkdir()
+            wiki = make_wiki(base)
+            wiki_p = wiki.resolve().as_posix()
+            iv.ROOT = brain
+            os.environ["BRAIN_WIKI"] = str(base / "no-such-wiki")
+
+            old_brain = base / "old-brain"             # exists, holds the old wiki_root.py
+            (old_brain / "scripts").mkdir(parents=True)
+            (old_brain / "scripts" / "wiki_root.py").write_text("", encoding="utf-8")
+            old_wiki = base / "old-wiki"               # exists, holds the old brain.md
+            (old_wiki / "_local").mkdir(parents=True)
+            (old_wiki / "_local" / "brain.md").write_text("", encoding="utf-8")
+            gone_brain = base / "gone-brain"           # missing: the old brain.root
+            gone_wiki = base / "gone-wiki"             # missing: the old configured wiki
+            hand_missing = base / "hand-missing"       # missing, never written by us
+            keep = base / "keep-me"                    # exists, owner's folder
+            keep.mkdir()
+
+            (brain / "_local" / "brain.json").write_text(
+                json.dumps({"wiki": gone_wiki.as_posix()}), encoding="utf-8")
+            subprocess.run(["git", "-C", str(wiki), "config", "brain.root",
+                            gone_brain.as_posix()], check=True)
+            wl_path = wiki / ".claude" / "settings.local.json"
+            wl_path.write_text(json.dumps({
+                "permissions": {"additionalDirectories": [
+                    old_brain.as_posix(), gone_brain.as_posix(),
+                    hand_missing.as_posix(), keep.as_posix()]},
+                "hooks": {"PreToolUse": [
+                    {"matcher": "Write", "hooks": [{"type": "command",
+                        "command": 'python "/old/scripts/pii_gate.py"'}]},
+                    {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hand"}]}]},
+            }), encoding="utf-8")
+            bl_path = brain / ".claude" / "settings.local.json"
+            bl_path.write_text(json.dumps({"permissions": {
+                "additionalDirectories": [old_wiki.as_posix(), gone_wiki.as_posix(),
+                                          keep.as_posix()],
+                "deny": ["Read(//c/Users/Old/wiki/raw/**)",
+                         "Read(//c/Users/Old/wiki/_local/**)",
+                         "Read(//home/someone/private/**)"]}}), encoding="utf-8")
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--check"])
+            case("stale paths: check reports pending", code, 1)
+            case("stale paths: the brain step is not ok",
+                 iv.step_brain_for_wiki(wiki, iv.wiki_snapshot(wiki))[0], False)
+            case("stale paths: the wiki hooks step is not ok",
+                 iv.step_wiki_hooks(wiki, iv.wiki_snapshot(wiki))[0], False)
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--yes"])
+            case("stale paths: apply exits 0", code, 0)
+            wl = json.loads(wl_path.read_text(encoding="utf-8"))
+            case("the old brain and the missing old brain.root leave the wiki's list",
+                 wl["permissions"]["additionalDirectories"],
+                 [hand_missing.as_posix(), keep.as_posix(), brain.as_posix()])
+            case("a missing folder the owner added stays in the wiki's list",
+                 hand_missing.as_posix() in wl["permissions"]["additionalDirectories"], True)
+            pre = wl["hooks"]["PreToolUse"]
+            case("the old gate is replaced; the owner's hook keeps its place after ours",
+                 [g["matcher"] for g in pre], [iv.PII_MATCHER, iv.EDIT_MATCHER, "Bash"])
+            case("the old pii_gate command is gone",
+                 "/old/scripts" in wl_path.read_text(encoding="utf-8"), False)
+
+            bl = json.loads(bl_path.read_text(encoding="utf-8"))
+            case("the old wiki and the missing old wiki leave the brain's list",
+                 bl["permissions"]["additionalDirectories"], [keep.as_posix(), wiki_p])
+            case("the old drive-form deny rules are replaced, the owner's rule stays",
+                 bl["permissions"]["deny"],
+                 ["Read(//home/someone/private/**)",
+                  "Read(/" + wiki_p + "/raw/**)", "Read(/" + wiki_p + "/_local/**)"])
+            case("the pointer is rewritten to the new wiki",
+                 json.loads((brain / "_local" / "brain.json").read_text(encoding="utf-8"))["wiki"],
+                 wiki_p)
+            case("git brain.root is rewritten to the new brain",
+                 subprocess.run(["git", "-C", str(wiki), "config", "--get", "brain.root"],
+                                capture_output=True, text=True).stdout.strip(),
+                 brain.as_posix())
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--check"])
+            case("stale paths: check after apply is ok", code, 0)
+            case("stale paths: a second apply changes nothing",
+                 "nothing to do" in capture(["--wiki", str(wiki), "--wiki-only", "--yes"])[1], True)
+
+            # Pure: the deny rule matcher, the merge's shape, and a second merge.
+            wanted = iv.wiki_hook_entries(brain.as_posix(), wiki_p)
+            case("the wiki hook entries are lists per event",
+                 all(isinstance(v, list) for v in wanted.values()), True)
+            settings = {"hooks": {"PreToolUse": [
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo a"}]},
+                {"matcher": "Write", "hooks": [{"type": "command",
+                    "command": 'python "/x/pii_gate.py"'}, {"type": "command", "command": "echo keep"}]}]}}
+            once = iv.merge_hooks(settings, {"PreToolUse": wanted["PreToolUse"]})
+            case("merge: ours are replaced, others keep order, a kept hook stays in its group",
+                 [g["matcher"] for g in once["hooks"]["PreToolUse"]],
+                 ["Bash", iv.PII_MATCHER, iv.EDIT_MATCHER, "Write"])
+            case("merge: the group that held ours keeps the hand-added hook",
+                 once["hooks"]["PreToolUse"][3]["hooks"], [{"type": "command", "command": "echo keep"}])
+            case("merge: a second merge is a no-op", iv.merge_hooks(once, {"PreToolUse": wanted["PreToolUse"]}), once)
+            case("stale deny: a drive-form rule of an old wiki is stale",
+                 iv.stale_deny(["Read(//c/Users/Old Wiki/raw/**)", "Read(./raw/**)",
+                                "Read(//c/x/private/**)"], pathlib.Path("/home/x/wiki"), ["raw/**"]),
+                 ["Read(//c/Users/Old Wiki/raw/**)"])
+            case("stale deny: the current rule is not stale",
+                 iv.stale_deny(["Read(//home/x/wiki/raw/**)"], pathlib.Path("/home/x/wiki"),
+                               ["raw/**"]), [])
     finally:
         iv.ROOT = saved_root
         if saved_env is None:
@@ -877,6 +1007,7 @@ def main():
 
     iv.repo_access, iv.remote_head = real_access, real_remote
     wiki_cases()
+    stale_cases()
     verify_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
