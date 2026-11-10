@@ -44,3 +44,5 @@ created: 2026-11-10
 | 2026-11-10 | Absolute deny rules use `//` plus the POSIX path; a Windows drive path `C:/x` is written `//c/x`. | Claude Code matches Windows paths in POSIX form. | `//C:/x`, which would never match. |
 | 2026-11-10 | `~/wiki` gets the same local git identity as `~/brain` (GhostServer). | The clone had none, so commits in it would fail. | Setting a global identity on the machine. |
 | 2026-11-10 | On this machine the wiki points at the `~/brain-wiki-split` worktree until the split merges; then re-run `install_vault.py --wiki ~/wiki --wiki-only --yes` from `~/brain`. | The new scripts exist only on the branch until merge. | Wiring `~/brain`, which lacks `wiki_root.py` before merge. |
+| 2026-11-10 | The wiki starts blank: FIRN client map, logos, block rules and code owners removed; new single first commit. | The owner no longer works from the FIRN repo. | Keeping the FIRN map as history in the wiki. |
+| 2026-11-10 | Brain `CODEOWNERS` removed; R-34 and the branch-policy guard list no longer name it. | It routed reviews to a former reviewer; the owner is the only reviewer now. | Replacing the reviewer handle. |

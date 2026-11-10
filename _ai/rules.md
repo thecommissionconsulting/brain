@@ -69,7 +69,7 @@ is how the vault gets more reliable over time. Today: 16 HARD, 8 WARN, 29 MANUAL
 | R-31 | Data | Machine and personal bindings live only in `_local/` | [[setup]] | `.gitignore` | **HARD** | ok |
 | R-32 | Data | `raw/`, `assets/`, `.confluence-private/` are never committed | `.gitignore` | `.gitignore`, plus `hooks_guard.py` which also catches `git add -f` | **HARD** | ok |
 | R-33 | Data | Content-level exclusions inside approved zones | `exclusions.py` docstring | `hooks_guard.py` warns on rates, tenant GUIDs and bulk external addresses at commit; `pii_gate.py` blocks reading them into the prompt | WARN | **breached, now visible** — a whole-tree scan on 2026-09-17 found charge-out rates in ~50 `services-team/trackers/` notes, 89 external addresses in `ludo-s-schedule.md` and 62 in the graduate-programme candidate evaluation. The gate warns on new occurrences; the existing ones are untriaged. |
-| R-34 | Git | `main` changes by PR | [[setup]] | `hooks_guard.py` refuses a commit or push to `main`, and a force-push or delete of it; `CODEOWNERS` auto-requests review. Still unenforceable server-side on GitHub Free | **HARD** (local) | ok |
+| R-34 | Git | `main` changes by PR | [[setup]] | `hooks_guard.py` refuses a commit or push to `main`, and a force-push or delete of it. Still unenforceable server-side on GitHub Free | **HARD** (local) | ok |
 | R-35 | Git | No `vault backup:` commits on `main` | [[setup]] | `hooks_guard.py` commit-msg, then `branch-policy.yml` | **HARD** | ok |
 | R-36 | Git | No PR from `main` into `main` | `branch-policy.yml` | `branch-policy.yml` | **HARD** | ok |
 | R-37 | Git | PR heads are short-lived topic branches | `branch-policy.yml` | `branch-policy.yml` | WARN | ok |
@@ -109,8 +109,6 @@ Scripts are in `scripts/`, workflows in `.github/workflows/`.
 
 Start every new note from a skeleton in `_ai/templates/` (wiki): [[client]], [[engagement]],
 [[meeting]], [[playbook]], [[retrospective]].
-For slides, start from the HTML deck shell in `_ai/templates/presentation/` (wiki) — see
-[[presentation-theme]]. Draft, not ratified.
 
 Every note carries `type:`, and whatever that type requires. CI (`vault-lint`) enforces the
 table in §Schema. Fields the lint does not demand are still expected, so fill them in.

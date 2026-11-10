@@ -114,7 +114,7 @@ jobs:
             "${{ github.event.pull_request.base.sha }}" \
             "${{ github.event.pull_request.head.sha }}")
           for f in scripts/hooks_guard.py .githooks/pre-commit .githooks/pre-push \
-                   .githooks/commit-msg .github/CODEOWNERS .gitignore; do
+                   .githooks/commit-msg .gitignore; do
             if printf '%s\n' "$changed" | grep -qx "$f"; then
               echo "::warning title=Guard changed::$f is part of the vault's protection. Confirm this PR is meant to change it."
             fi
