@@ -33,6 +33,7 @@ def main():
         p = run(str(empty))
         check("no wiki: exits 0", p.returncode == 0, fails)
         check("no wiki: says not configured", "wiki: not configured" in p.stdout, fails)
+        check("no wiki: the gate checker runs", "gates ok" in p.stdout, fails)
         check("no wiki: no budget line", "index.md " not in p.stdout, fails)
         check("no wiki: Rules line is last",
               p.stdout.strip().splitlines()[-1] == f"Rules: {ROOT.as_posix()}/_ai/rules.md",
@@ -46,6 +47,7 @@ def main():
 
         p = run(str(wiki))
         check("wiki: exits 0", p.returncode == 0, fails)
+        check("wiki: the gate checker runs", "gates ok" in p.stdout, fails)
         check(f"wiki: budget in bytes ({size}/32768)",
               f"index.md {size}/32768" in p.stdout, fails)
         check("wiki: Rules line is last",

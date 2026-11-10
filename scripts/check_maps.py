@@ -13,6 +13,8 @@ Two changes from the obsidian-legacy original, per vault-restructure-design.md Â
     weakness where a word-boundary match on "people" was satisfied by any
     prose mention of the word.
   - SKIP_DIRS drops confluence and archive, and adds raw.
+
+Enforces R-07 (every leaf folder under wiki/ is named in index.md) and R-08 (every live skill is listed in index.md and none is stale).
 """
 import json
 import pathlib

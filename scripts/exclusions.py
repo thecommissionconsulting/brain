@@ -18,6 +18,8 @@ Two severities, because the owner distinguished them on 2026-09-11:
 Not enforced here, and flagged in the source document as unresolved: content
 level exclusions inside approved zones (HubSpot prospect lists, per-person
 billable rates, client tenant GUIDs). Those need the note body, not the path.
+
+Enforces R-27: blocked source zones never reach the vault, through blocked().
 """
 
 from __future__ import annotations
