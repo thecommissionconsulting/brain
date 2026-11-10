@@ -1238,7 +1238,7 @@ WIKI_HOOK_NAMES = ("pre-commit", "commit-msg", "pre-push")
 # An entry is ours when its command runs one of these scripts. Ours are replaced;
 # anything else in the same file, including a hook the owner added by hand, is kept.
 OUR_SCRIPTS = ("session_gate.py", "pii_gate.py", "review_output.py", "wiki_edit_gate.py")
-PII_MATCHER = "Read|Grep|Glob|Bash|Write|Edit|NotebookEdit"
+PII_MATCHER = "Read|Grep|Glob|Bash|Write|Edit|MultiEdit|NotebookEdit"
 EDIT_MATCHER = "Write|Edit|MultiEdit"
 ABSOLUTE_READ = re.compile(r"Read\(//.+\)")
 DENY_READ = re.compile(r"Read\(\./(.+)\)")

@@ -55,6 +55,8 @@ CASES = [
     ("grep -r into the prefix",           bash("grep -r x " + C), "DENY"),
     ("Grep scoped into the prefix",       {"tool_name": "Grep", "tool_input": {"pattern": "x", "path": C}}, "DENY"),
     ("Write into the prefix",             {"tool_name": "Write", "tool_input": {"file_path": C + "/x.md"}}, "DENY"),
+    ("MultiEdit into the prefix",         {"tool_name": "MultiEdit", "tool_input": {"file_path": C + "/x.md",
+                                           "edits": [{"old_string": "a", "new_string": "b"}]}}, "DENY"),
 
     ("commit message with '10 or more'",  bash("git commit -F -\n10 or more addresses in " + L), "ALLOW"),
     ("prose using less / type / more",    bash("echo " + L + " has less noise of this type and more besides"), "ALLOW"),
@@ -63,6 +65,8 @@ CASES = [
     ("python heredoc naming the path",    bash("python - <<PY\nskip = ['" + C + "']\nPY"), "ALLOW"),
     ("ordinary cat",                      bash("cat index.md"), "ALLOW"),
     ("Read an ordinary note",             read("index.md"), "ALLOW"),
+    ("MultiEdit an ordinary note",        {"tool_name": "MultiEdit", "tool_input": {"file_path": "index.md",
+                                           "edits": [{"old_string": "a", "new_string": "b"}]}}, "ALLOW"),
     ("broad grep over wiki (known gap)",  {"tool_name": "Grep", "tool_input": {"pattern": "x", "path": "wiki"}}, "ALLOW"),
 ]
 

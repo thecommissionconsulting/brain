@@ -464,6 +464,18 @@ def jev_cases():
              ".githooks", []))), True)
 
 
+def matcher_cases():
+    """MultiEdit is an edit tool, so the PII gate must see it on every path the installer and the brain wire."""
+    case("the installer's PII matcher covers MultiEdit", "MultiEdit" in iv.PII_MATCHER, True)
+    case("the installer's PII matcher keeps the Edit tools",
+         all(t in iv.PII_MATCHER.split("|") for t in ("Edit", "Write", "NotebookEdit")), True)
+    brain = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    pii = [g["matcher"] for g in brain["hooks"]["PreToolUse"] if "pii_gate.py" in
+           json.dumps(g["hooks"])]
+    case("the brain's PII matcher covers MultiEdit", [("MultiEdit" in m) for m in pii], [True])
+    case("the brain's PII matcher is the installer's", pii, [iv.PII_MATCHER])
+
+
 def main():
     # No case may reach GitHub. Cases that need the private marketplace's answer
     # set it themselves.
@@ -1102,6 +1114,7 @@ def main():
     stale_cases()
     verify_cases()
     jev_cases()
+    matcher_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
     print("\ntest_install_vault: " + str(total - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")
