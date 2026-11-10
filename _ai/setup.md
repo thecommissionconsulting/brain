@@ -243,8 +243,8 @@ On Linux, macOS and WSL, export them from your shell profile.
 The workspace root is no longer where this file goes. On Windows the workspace is `C:\`,
 and a `CLAUDE.md` there would load into every Claude Code session on the drive. A client
 workspace that needs the vault's router imports it from its own `CLAUDE.md`, e.g.
-`@C:/vault/index.md` (Windows) or `@/home/you/workspace/vault/index.md` (Linux/WSL/Mac).
-`index.md` is the router; there is no other master note.
+`@C:/wiki/index.md` (Windows) or `@/home/you/wiki/index.md` (Linux/WSL/Mac).
+The wiki's `index.md` is the router; there is no other master note.
 
 ## 4. Your machine-local config lives in `_local/` (gitignored)
 
@@ -280,7 +280,7 @@ fields it cannot detect are left blank, and it names them; fill them with
 
 ## 5. Vector retrieval (removed)
 
-The vault no longer has vector search. It was removed on 2026-11-09. Use `index.md`, then the
+The vault no longer has vector search. It was removed on 2026-11-09. Use the wiki's `index.md`, then the
 folder hub, then grep.
 
 ## 6. What runs by itself, once this is done
@@ -289,13 +289,13 @@ Three Claude Code hooks are configured in `.claude/settings.json`, which is comm
 they apply to every clone without further setup. A fourth, the `answer-only`
 `UserPromptSubmit` gate, left with the retired `central` plugin on 2026-11-07.
 
-`SessionStart` runs `scripts/session_gate.py`: the two sub-second gates plus the `index.md`
+`SessionStart` runs `scripts/session_gate.py`: the two sub-second gates plus the wiki's `index.md`
 byte budget, so a session opens knowing which rules in [[rules]] are currently red. It
 always exits 0 and never blocks a session.
 
 `PreToolUse` runs `scripts/pii_gate.py` in front of every read, search and write. It blocks
 reads of the vault's bulk personal data before it can reach the prompt, using the static
-list in `_ai/pii-denylist.txt` plus a count of distinct external addresses computed at read
+list in `_ai/pii-denylist.txt` (wiki) plus a count of distinct external addresses computed at read
 time. It fails open: if the gate itself errors, the tool call proceeds.
 
 `Stop` runs `scripts/review_output.py --gate`. Generated artifacts go to `raw/output/`
@@ -316,4 +316,4 @@ full history as the backstop behind the local secret guard.
 How to prove an install actually took, with 27 acceptance cases and the coverage gaps:
 [[vault-install-test-plan]].
 
-Related: [[rules]] · [[retrieval]] · [[vault-install-test-plan]]
+Related: [[rules]] · `_ai/retrieval.md` in the wiki · [[vault-install-test-plan]]

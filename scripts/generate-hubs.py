@@ -28,7 +28,10 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 WIKI = VAULT / "wiki"
 INDEX = VAULT / "index.md"
 OWNER = "Daru Broodryk"
@@ -144,9 +147,17 @@ def routing_block(folder: Path, notes: list[Path], subfolders: list[Path],
 
 
 def main() -> int:
+    global VAULT, WIKI, INDEX
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--root", metavar="PATH", help="work on this wiki folder")
     args = parser.parse_args()
+    if args.root:
+        VAULT = wiki_root.require_wiki(Path(args.root).expanduser().resolve())
+        WIKI = VAULT / "wiki"
+        INDEX = VAULT / "index.md"
+    else:
+        wiki_root.require_wiki(VAULT)
 
     folders = sorted([d for d in WIKI.rglob("*") if d.is_dir()] + [WIKI])
     stems: dict[Path, str] = {}

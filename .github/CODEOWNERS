@@ -13,13 +13,7 @@
 *                                   @phildonovan
 
 # Shared knowledge and the AI map -- keep discoverability intentional
-/wiki/internal/knowledge-base/      @phildonovan
-/wiki/internal/playbooks/           @phildonovan
 /_ai/                               @phildonovan
-/index.md                           @phildonovan
-
-# Client material: the boundary between this vault and the per-client repos
-/wiki/clients/                      @phildonovan
 
 # The guardrails themselves. A change here is how someone would turn the
 # protection off, so it always gets a second pair of eyes.

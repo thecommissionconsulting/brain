@@ -63,6 +63,11 @@ incomplete: stop and say so. If the person keeps the marketplace somewhere else,
 `VAULT_SKILLS_DIR` to it before running the installer. Do not continue past the plugin
 step without it; the rest of the install would apply but the plugins would not.
 
+The wiki is a second repo, `DataWithDaru/wiki`. It sits beside this clone as `../wiki`,
+which is where `scripts/setup_vault.py` puts it on a new machine. If `../wiki` is
+missing, say so and ask before cloning it. The installer wires it in §5 with
+`--wiki ../wiki`; without a wiki it reports `wiki: not configured` and the rest still applies.
+
 ## 3. Pull, then re-read this note
 
 ```bash
@@ -136,14 +141,17 @@ fine; the named skill or report just won't work until they are installed.
 With their go-ahead for `--force`:
 
 ```bash
-python scripts/install_vault.py --yes --force
+python scripts/install_vault.py --yes --force --wiki ../wiki
 ```
 
 Without it:
 
 ```bash
-python scripts/install_vault.py --yes
+python scripts/install_vault.py --yes --wiki ../wiki
 ```
+
+The wiki steps run with the rest when the wiki is found. `--wiki-only --yes` runs only
+them, and never a global step. The flag is only needed when the wiki is not at `../wiki`.
 
 `hook runtimes` reads FAILED until the program from §4 is installed or its plugin
 removed. That is expected, and its line names the fix. Read the result back: each step marked `done` or `FAILED`, the

@@ -21,7 +21,10 @@ import re
 import sys
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 WIKI = VAULT / "wiki"
 MIGRATION_MANIFESTS = (
     VAULT / "_local" / "curated-migration.jsonl",
@@ -32,6 +35,7 @@ SOURCE_LINE = re.compile(r'^source: ".*"$', re.M)
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()

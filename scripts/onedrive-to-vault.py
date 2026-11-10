@@ -34,7 +34,10 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-VAULT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_root  # noqa: E402
+
+VAULT = wiki_root.wiki_root() or wiki_root.MISSING
 SOURCE_DEFAULT = Path(r"C:\Users\DaruBroodryk\Company Ltd\Shared - Documents")
 DEST_DEFAULT = VAULT / "raw" / "onedrive"
 MANIFEST_DEFAULT = VAULT / "_local" / "onedrive-migration.jsonl"
@@ -334,6 +337,7 @@ def walk_files(root: Path):
 
 
 def main() -> int:
+    wiki_root.require_wiki(VAULT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=SOURCE_DEFAULT)
     parser.add_argument("--dest", type=Path, default=DEST_DEFAULT)

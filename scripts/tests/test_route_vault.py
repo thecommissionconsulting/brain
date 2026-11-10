@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -157,3 +158,19 @@ def test_strip_type_marker(stem, expected):
 def test_wiki_filename_can_keep_the_type_for_collisions():
     assert rv.wiki_filename("Terms docx.md", keep_type=True) == "terms-docx.md"
     assert rv.wiki_filename("Terms pdf.md", keep_type=True) == "terms-pdf.md"
+
+
+def test_import_without_wiki_does_not_exit(monkeypatch, tmp_path):
+    """Importing route-vault with no wiki on the machine must not exit; only main() may."""
+    monkeypatch.setenv("BRAIN_WIKI", str(tmp_path / "no-such-wiki"))
+    spec = importlib.util.spec_from_file_location(
+        "route_vault_nowiki", Path(__file__).resolve().parent.parent / "route-vault.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert not mod.VAULT.exists()
+
+    monkeypatch.setattr(sys, "argv", ["route-vault.py"])
+    with pytest.raises(SystemExit) as err:
+        mod.main()
+    assert err.value.code == 2

@@ -411,7 +411,7 @@ When all 4 pass, the new machine works like the old one.
 
 **Not copied on purpose**
 
-- The vault repo rules (`raw/`, `wiki/`, R-numbers, the vault gates). They need the repo.
+- The vault repo rules (`raw/`, `wiki/`, R-numbers, the vault gates). They need the brain and wiki repos.
 - The `autoMode` environment block from the old `settings.json`. It describes the
   MedMum project, not this setup.
 - Sign-ins, history and session data.

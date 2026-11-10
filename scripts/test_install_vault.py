@@ -11,10 +11,13 @@ could not parse would break configuration the vault does not own. So: other hook
 survive, a second run is a no-op, a backup exists, and malformed JSON is left
 exactly as it was found.
 """
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -43,6 +46,200 @@ def home(tmp, settings=None):
         path.mkdir(parents=True, exist_ok=True)
         (path / "settings.json").write_text(settings, encoding="utf-8")
     return path
+
+
+# ---- the wiki steps ----------------------------------------------------------
+# Every case here runs against a temporary brain and a temporary wiki. ROOT is
+# pointed at the temporary brain, so the real _local/ and .claude/settings.local.json
+# are never written, and BRAIN_WIKI names a folder that does not exist, so the real
+# wiki is never found by accident.
+
+def make_wiki(tmp):
+    wiki = pathlib.Path(tmp) / "wiki"
+    (wiki / ".claude").mkdir(parents=True)
+    (wiki / ".githooks").mkdir(parents=True)
+    (wiki / "index.md").write_text("# index\n", encoding="utf-8")
+    (wiki / ".claude" / "settings.json").write_text(json.dumps({"permissions": {
+        "deny": ["Read(./raw/**)", "Read(./_local/**)", "Bash(rm -rf:*)"]}}),
+        encoding="utf-8")
+    for name in iv.WIKI_HOOK_NAMES:
+        (wiki / ".githooks" / name).write_text("#!/bin/sh\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(wiki)], check=True)
+    subprocess.run(["git", "-C", str(wiki), "add", "-A"], check=True)
+    return wiki
+
+
+def capture(argv):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = iv.main(argv)
+    return code, buf.getvalue()
+
+
+def wiki_cases():
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            home(base)
+            brain = base / "brain"
+            (brain / "_local").mkdir(parents=True)
+            (brain / ".claude").mkdir()
+            wiki = make_wiki(base)
+            wiki_p = wiki.resolve().as_posix()
+            iv.ROOT = brain
+            os.environ["BRAIN_WIKI"] = str(base / "no-such-wiki")
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--dry-run"])
+            case("dry-run exits 0", code, 0)
+            case("dry-run lists the five wiki steps", out.count("PENDING"), 5)
+            case("dry-run writes nothing", (brain / "_local" / "brain.json").exists(), False)
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--check"])
+            case("check on a bare wiki exits 1", code, 1)
+            case("check names the wiki it found", "wiki: " + wiki_p in out, True)
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--yes"])
+            case("apply exits 0", code, 0)
+            cfg = json.loads((brain / "_local" / "brain.json").read_text(encoding="utf-8"))
+            case("step 1 records the wiki path", cfg["wiki"], wiki_p)
+            case("step 2 imports the brain CLAUDE.md by absolute path",
+                 (wiki / "_local" / "brain.md").read_text(encoding="utf-8"),
+                 "@" + (brain / "CLAUDE.md").as_posix() + "\n")
+
+            wl_path = wiki / ".claude" / "settings.local.json"
+            bl_path = brain / ".claude" / "settings.local.json"
+            wl = json.loads(wl_path.read_text(encoding="utf-8"))
+            cmds = [h["command"] for ev in wl["hooks"].values() for g in ev for h in g["hooks"]]
+            case("step 3 wires three gates", len(cmds), 3)
+            case("step 3 wires the session gate",
+                 any("session_gate.py" in c for c in cmds), True)
+            case("step 3 passes --root to the review gate",
+                 any("review_output.py" in c and f'--root "{wiki_p}"' in c for c in cmds), True)
+            case("step 3 adds the brain as an extra directory",
+                 wl["permissions"]["additionalDirectories"], [brain.as_posix()])
+
+            bl = json.loads(bl_path.read_text(encoding="utf-8"))
+            case("step 4 adds the wiki as an extra directory",
+                 bl["permissions"]["additionalDirectories"], [wiki_p])
+            case("step 4 makes the Read rules absolute, drops the others",
+                 bl["permissions"]["deny"],
+                 ["Read(/" + wiki_p + "/raw/**)", "Read(/" + wiki_p + "/_local/**)"])
+
+            def git_out(*args):
+                return subprocess.run(["git", "-C", str(wiki)] + list(args),
+                                      capture_output=True, text=True).stdout
+            case("step 5 sets brain.root", git_out("config", "--get", "brain.root").strip(),
+                 brain.as_posix())
+            case("step 5 sets core.hooksPath",
+                 git_out("config", "--get", "core.hooksPath").strip(), ".githooks")
+            case("step 5 marks the three hooks executable in git",
+                 sum(1 for l in git_out("ls-files", "-s").splitlines()
+                     if l.startswith("100755") and ".githooks/" in l), 3)
+            case("step 5 makes the hooks executable on disk",
+                 os.name == "nt" or all(os.access(wiki / ".githooks" / n, os.X_OK)
+                                        for n in iv.WIKI_HOOK_NAMES), True)
+
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--check"])
+            case("check after apply exits 0", code, 0)
+            case("check after apply says fully installed", "fully installed" in out, True)
+
+            # Entries the owner added by hand survive, and a second run changes nothing.
+            wl["hooks"].setdefault("PostToolUse", []).append(
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hand"}]})
+            wl_path.write_text(json.dumps(wl), encoding="utf-8")
+            bl["permissions"]["deny"].append("Read(//home/someone/private/**)")
+            bl_path.write_text(json.dumps(bl), encoding="utf-8")
+            before = {p: p.read_bytes() for p in (wl_path, bl_path, brain / "_local" / "brain.json",
+                                                  wiki / "_local" / "brain.md")}
+            baks = len(list(base.rglob("*.bak-*")))
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--yes"])
+            case("a second run exits 0", code, 0)
+            case("a second run says nothing to do", "nothing to do" in out, True)
+            case("a second run rewrites no file",
+                 {p: p.read_bytes() for p in before} == before, True)
+            case("a second run makes no backup", len(list(base.rglob("*.bak-*"))), baks)
+            case("a hand-added hook survives",
+                 "echo hand" in wl_path.read_text(encoding="utf-8"), True)
+            case("a hand-added deny rule survives",
+                 "Read(//home/someone/private/**)" in bl_path.read_text(encoding="utf-8"), True)
+            case("our session gate is not duplicated",
+                 wl_path.read_text(encoding="utf-8").count("session_gate.py"), 1)
+
+            # A malformed file is refused and left alone, and the other steps still apply.
+            bl_path.write_text("{not json", encoding="utf-8")
+            code, out = capture(["--wiki", str(wiki), "--wiki-only", "--yes"])
+            case("malformed brain settings exit 1", code, 1)
+            case("malformed brain settings are left alone",
+                 bl_path.read_text(encoding="utf-8"), "{not json")
+            case("and the failure is named", "FAILED  brain for wiki" in out, True)
+
+            code, out = capture(["--wiki", str(base / "nope"), "--wiki-only", "--check"])
+            case("a folder with no index.md is refused", code, 2)
+
+            os.environ["BRAIN_WIKI"] = str(base / "no-such-wiki")
+            code, out = capture(["--wiki-only", "--check"])
+            case("no wiki: the report says not configured", "wiki: not configured" in out, True)
+            case("no wiki: wiki-only exits 2", code, 2)
+
+        # Pure helpers: a Windows path with spaces, and the two import forms.
+        win_brain, win_wiki = "C:/Users/Daru Broodryk/brain", "C:/Users/Daru Broodryk/wiki"
+        entries = iv.wiki_hook_entries(win_brain, win_wiki)
+        case("a path with spaces keeps the hook JSON valid",
+             json.loads(json.dumps(entries)), entries)
+        case("the review gate quotes the wiki path",
+             f'--root "{win_wiki}"' in entries["Stop"]["hooks"][0]["command"], True)
+        case("the session gate quotes the brain path",
+             f'python "{win_brain}/scripts/session_gate.py"'
+             in entries["SessionStart"]["hooks"][0]["command"], True)
+        case("a drive-letter deny rule is absolute",
+             iv.absolute_read(win_wiki, "raw/**"),
+             "Read(//c/Users/Daru Broodryk/wiki/raw/**)")
+        case("a POSIX deny rule is absolute",
+             iv.absolute_read("/home/x/wiki", "raw/**"), "Read(//home/x/wiki/raw/**)")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            line, warn = iv.brain_import_line(base / "brain", home=base)
+            case("a brain under home uses the ~ import", line, "@~/brain/CLAUDE.md")
+            case("and needs no warning", warn, "")
+            line, warn = iv.brain_import_line(base / "my brain", home=base / "elsewhere")
+            case("a brain outside home is an absolute import",
+                 line, "@" + (base / "my brain" / "CLAUDE.md").as_posix())
+            case("a space in that path is warned about", "space" in warn, True)
+    finally:
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
+
+
+def verify_cases():
+    spec = importlib.util.spec_from_file_location(
+        "verify_install", ROOT / "scripts" / "verify_install.py")
+    vi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vi)
+    vi.results.clear()
+    vi.wiki_suites(None)
+    skipped = [r for r in vi.results if r[2] == "SKIP"]
+    case("no wiki: the wiki suites are skipped", len(skipped), 3)
+    case("and the reason is named", all(r[3] == "wiki not configured" for r in skipped), True)
+
+    saved_root = vi.ROOT
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            wiki = base / "wiki"
+            (wiki / "_local").mkdir(parents=True)
+            vi.ROOT = base / "brain"
+            case("no brain.md: the import check fails",
+                 vi.brain_import_check(wiki)[0], "FAIL")
+            (wiki / "_local" / "brain.md").write_text(
+                iv.brain_import_line(vi.ROOT)[0] + "\n", encoding="utf-8")
+            case("brain.md imports this brain: the import check passes",
+                 vi.brain_import_check(wiki)[0], "PASS")
+    finally:
+        vi.ROOT = saved_root
 
 
 def main():
@@ -679,6 +876,8 @@ def main():
          True)
 
     iv.repo_access, iv.remote_head = real_access, real_remote
+    wiki_cases()
+    verify_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
     print("\ntest_install_vault: " + str(total - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")

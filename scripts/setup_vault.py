@@ -48,6 +48,9 @@ from pathlib import Path
 
 VAULT_REPO = "https://github.com/<owner>/vault.git"
 VAULT_DIR = "vault"
+# The brain is VAULT_DIR; the knowledge base is the wiki, cloned next to it.
+WIKI_REPO = "https://github.com/DataWithDaru/wiki.git"
+WIKI_DIR = "wiki"
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +295,8 @@ def plan(answers, detected):
         steps.append(f"create {ws}")
     if not (ws / VAULT_DIR / ".git").exists():
         steps.append(f"clone {VAULT_REPO} -> {ws / VAULT_DIR}")
+    if not (ws / WIKI_DIR / ".git").exists():
+        steps.append(f"clone {WIKI_REPO} -> {ws / WIKI_DIR}")
     if answers.git_name and answers.git_name != detected.git_name:
         steps.append(f"git config --global user.name {answers.git_name!r}")
     if answers.git_email and answers.git_email != detected.git_email:
@@ -299,7 +304,7 @@ def plan(answers, detected):
     if answers.install_obsidian:
         steps.append("install Obsidian")
     if not detected.vault_registered:
-        steps.append(f"register {ws / VAULT_DIR} as an Obsidian vault")
+        steps.append(f"register {ws / WIKI_DIR} as an Obsidian vault")
     return steps
 
 
@@ -390,6 +395,12 @@ def run(cmd, cwd=None, io=None):
         return False
 
 
+def installer_command(ws):
+    """The one command that wires this machine to the wiki (install_vault.py --wiki)."""
+    return (f"python {ws / VAULT_DIR / 'scripts' / 'install_vault.py'} "
+            f"--wiki {ws / WIKI_DIR}")
+
+
 def apply(answers, detected, io):
     ws = answers.workspace
     ws.mkdir(parents=True, exist_ok=True)
@@ -399,6 +410,12 @@ def apply(answers, detected, io):
     elif not run(["git", "clone", VAULT_REPO, str(ws / VAULT_DIR)], io=io):
         io.tell(f"  ! could not clone {VAULT_DIR}. If the repo does not exist "
                 "yet, create it and re-run - everything else is done.")
+
+    if (ws / WIKI_DIR / ".git").exists():
+        io.tell(f"  {WIKI_DIR}: already cloned")
+    elif not run(["git", "clone", WIKI_REPO, str(ws / WIKI_DIR)], io=io):
+        io.tell(f"  ! could not clone {WIKI_DIR}. Check access to {WIKI_REPO}, "
+                "then re-run - everything else is done.")
 
     if answers.git_name and answers.git_name != detected.git_name:
         run(["git", "config", "--global", "user.name", answers.git_name], io=io)
@@ -413,14 +430,15 @@ def apply(answers, detected, io):
         else:
             run(cmd, io=io)
 
-    vault_path = ws / VAULT_DIR
+    vault_path = ws / WIKI_DIR
     if vault_path.exists():
         ok, msg = register_vault(obsidian_registry(detected.platform), vault_path,
                                  is_obsidian_running(detected.platform))
         io.tell(f"  Obsidian vault: {msg}")
 
     io.tell()
-    io.tell("Done. Next: open the vault in Obsidian and read index.md.")
+    io.tell(f"Connect the brain to the wiki: {installer_command(ws)}")
+    io.tell("Done. Next: open the wiki in Obsidian and read index.md.")
     io.tell("Secrets (Paymo, Google, Snowflake) are not handled here - see "
             "_ai/setup.md; they live in each tool's own config, never in a note.")
 
@@ -440,7 +458,7 @@ def main(argv=None, io=None):
     # first point at which "is it already a known Obsidian vault?" is answerable.
     # Without it the plan promises to register a vault that is already registered.
     detected.vault_registered = vault_is_registered(
-        obsidian_registry(detected.platform), answers.workspace / VAULT_DIR)
+        obsidian_registry(detected.platform), answers.workspace / WIKI_DIR)
     steps = plan(answers, detected)
 
     io.tell()
