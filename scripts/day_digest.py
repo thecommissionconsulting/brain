@@ -43,6 +43,7 @@ PROMPT_CHARS = 500
 MAX_PROMPTS = 40
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 COMMIT_MSG = re.compile(r"""-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))""")
+COMMIT_CMD = re.compile(r"\bgit(\s+-[Cc]\s+\S+)*\s+commit\b")
 NZ_STD = dt.timedelta(hours=12)
 NZ_DST = dt.timedelta(hours=13)
 
@@ -261,7 +262,7 @@ def _scan_file(path, day, tz, sessions, titles, cur):
                         rec["files"].add(target)
                 elif name == "Bash" and isinstance(inp.get("command"), str):
                     command = inp["command"]
-                    if "git commit" in command:
+                    if COMMIT_CMD.search(command):
                         m = COMMIT_MSG.search(command)
                         if m:
                             rec["commits"].append(next(g for g in m.groups() if g is not None))

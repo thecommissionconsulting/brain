@@ -254,6 +254,18 @@ def run_cases(tmp):
     case("files are sorted and unique",
          s["files"], [repo_s + "/notes/a.md", repo_s + "/notes/b.md"])
     case("commit messages come from -m", s["commits"], ["Add the thing", "Fix it"])
+    write(projects, "acme", "gitc", [
+        user("2026-11-10T08:00:00Z", "s-gitc", repo_s, "Commit from the repo folder"),
+        tool_use("2026-11-10T08:01:00Z", "s-gitc", repo_s, "Bash",
+                 {"command": "git -C " + repo_s + " commit -m \"Via dash C\""}),
+        tool_use("2026-11-10T08:02:00Z", "s-gitc", repo_s, "Bash",
+                 {"command": "git -c user.name=x -C " + repo_s + " commit -m 'Via lower c'"}),
+        tool_use("2026-11-10T08:03:00Z", "s-gitc", repo_s, "Bash",
+                 {"command": "git -C " + repo_s + " status"}),
+    ])
+    gitc = run_day("2026-11-10", tz, projects, wiki, repos)
+    case("git -C and -c commits are captured",
+         session_by_id(gitc, "s-gitc")["commits"], ["Via dash C", "Via lower c"])
     case("the custom title is kept for a client session", s["title"], "Page work")
     write(projects, "acme", "untitled", [
         user("2026-11-10T07:00:00Z", "s-plain", repo_s, "hello"),
