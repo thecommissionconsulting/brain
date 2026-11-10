@@ -379,6 +379,16 @@ def run_cases():
         fake = Fake(action=outside)
         case("a change outside the allowed paths exits 1", run_with(w, fake), 1)
         case("a change outside the allowed paths is not pushed", remote_log(w), ["fixture"])
+        wiki_dir = w["wiki"] if isinstance(w, dict) else w.wiki
+        head = subprocess.run(["git", "-C", str(wiki_dir), "symbolic-ref", "--short", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(wiki_dir), "status", "--porcelain"],
+                               capture_output=True, text=True).stdout.strip()
+        parked = subprocess.run(["git", "-C", str(wiki_dir), "show", "--name-only", "--format=",
+                                 "digest/" + DAY], capture_output=True, text=True).stdout
+        case("after parking, the wiki is back on main", head, "main")
+        case("after parking, main is clean", dirty, "")
+        case("the parked branch holds the stray file", "scripts/evil.py" in parked, True)
 
     with tempfile.TemporaryDirectory() as tmp:
         w = world(tmp)

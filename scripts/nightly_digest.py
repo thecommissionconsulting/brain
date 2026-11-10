@@ -228,13 +228,13 @@ def park(wiki, env, day, why, report):
         report.add("park", "no changes to park (" + why + ")")
         return
     steps = [("switch", ["switch", "-C", branch]),
-             ("add", ["add", "-A", "--", ".", ":(exclude)_local"]),
+             ("add", ["add", "-A"]),
              ("commit", ["commit", "-m", "Nightly digest " + day.isoformat() + " (parked: " + why + ")"])]
     for label, args in steps:
         res = git(wiki, env, *args)
         if res.returncode != 0 and not (label == "commit" and "nothing to commit" in (res.stdout or "")):
             report.add("park", label + " failed on " + branch + ": " + tail(res.stderr or res.stdout, 300))
-            return
+            break
     back = git(wiki, env, "switch", "main")
     reset = git(wiki, env, "reset", "--hard", "origin/main")
     if back.returncode or reset.returncode:
