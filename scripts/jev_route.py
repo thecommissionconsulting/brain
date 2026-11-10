@@ -6,14 +6,17 @@ confidence. Below THRESHOLD, or for a skill outside SKILLS, `ask_user` is true, 
 Claude names its best pick and asks the owner instead of acting on it.
 
 The summary is sent to TypeSafe. The owner approved that on 2026-11-07. So send a
-short summary of the Build, never raw client material and never a secret.
+short summary of the Build, never raw client material and never a secret. Every call
+goes through jev_client (policy, PII scan, deadline, decision log); this file only
+builds the questions and reads the answers.
 
 The classify hook (`--hook`) also sends each user prompt, raw text and not a summary.
 The owner approved that on 2026-11-07, which widens the approval above. The hook reads
 a UserPromptSubmit JSON on stdin and prints a hint for Claude's context: Question, Task
 or Build. Claude still decides, under CLAUDE.md "How Claude responds".
-- Skipped, not sent: empty prompts, slash commands, and any prompt the PII scan
-  (security/patterns.py) flags. The scan fails closed: if it cannot load or run, nothing is sent.
+- Skipped, not sent: empty prompts, slash commands, any prompt the policy in
+  _local/jev-policy.json does not allow (mode off), and any prompt the PII scan
+  (scripts/patterns.py) flags. The scan fails closed: if it cannot load or run, nothing is sent.
 - The `#pii-ok` override of prompt_gate.py does not apply here.
 - Only the prompt text is sent. session_id, transcript_path and cwd never leave the machine.
 - Fails open: a Jev error prints one line naming the error type, and the prompt proceeds.
@@ -28,7 +31,8 @@ Usage, from the repo root:
   python scripts/jev_route.py --text "Add a CSV export to the reports page"
   python scripts/jev_route.py raw/output/build-summary.md
 
-Exit codes: 0 routed, 2 bad input or no key, 3 the Jev call failed.
+Exit codes: 0 routed, 2 bad input, no key, policy off or blocked by the PII scan,
+3 the Jev call failed.
 """
 import argparse
 import json
@@ -36,15 +40,18 @@ import os
 import pathlib
 import sys
 import urllib.error
-import urllib.request
 
-ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import jev_client  # noqa: E402
+
+ENDPOINT = jev_client.DEFAULT_ENDPOINT
+load_policy = jev_client.load_policy
 MODEL = "jev-latest"
 THRESHOLD = 0.6
 MAX_CHARS = 24000
 HOOK_MAX_CHARS = 4000
-HOOK_TIMEOUT = 4   # urlopen applies this per socket step, not in total; the hook entry allows 15 s
-CENTRAL = pathlib.Path(__file__).resolve().parent.parent / "marketplace" / "plugins" / "central"
+HOOK_TIMEOUT = 4   # jev_client.send enforces this as a total deadline; the hook entry allows 15 s
+BUILD_TIMEOUT = 30 # the Build route is not a hook, so it keeps the longer limit
 KINDS = {
     "question": "The user wants an answer or an explanation; nothing is to be changed",
     "task": "A bounded change or action: fix, run, edit, move, check or configure something that exists",
@@ -165,26 +172,26 @@ def hook_context(result):
     return f"Jev labels this prompt a {kind} (confidence {confidence}). Treat it as a hint; you decide."
 
 
-def should_send(prompt, scan=None):
-    """(send, reason). Fail-closed: a prompt is sent only after the PII scan has run clean."""
+def should_send(prompt, scan=None, policy=None):
+    """(send, reason). Empty and slash-command prompts are never sent. The rest goes
+    through jev_client.may_send for zone "meta": policy, then the PII scan, fail-closed."""
     if not prompt.strip():
         return False, "empty"
     if prompt.lstrip().startswith("/"):
         return False, "slash command"
-    try:
-        if scan is None:
-            if str(CENTRAL) not in sys.path:
-                sys.path.insert(0, str(CENTRAL))
-            from security.patterns import scan
-        hits = scan(prompt)
-    except Exception:
-        return False, "PII scan unavailable"
-    if hits:
-        return False, "personal data"
-    return True, "ok"
+    if policy is None:
+        policy = load_policy()
+    return jev_client.may_send(prompt, "meta", policy, scan)
 
 
-def run_hook(stdin_text, env, call=None, scan=None):
+def adapt(call):
+    """jev_client.send passes endpoint=; the wrappers here take only the timeout."""
+    def send_call(payload, key, timeout=30, endpoint=None):
+        return call(payload, key, timeout=timeout)
+    return send_call
+
+
+def run_hook(stdin_text, env, call=None, scan=None, policy=None):
     """The UserPromptSubmit hook. Returns the JSON to print, or "" to print nothing.
 
     Never blocks the prompt. Only the prompt text is sent to Jev; the rest of the
@@ -193,38 +200,32 @@ def run_hook(stdin_text, env, call=None, scan=None):
     call = call or call_jev
     hook_input = json.loads(stdin_text)
     prompt = hook_input.get("prompt") or hook_input.get("user_input") or ""
-    ok, _ = should_send(prompt, scan)
+    ok, _ = should_send(prompt, scan, policy)
     if not ok:
         return ""
     key = env.get("TYPESAFE_API_KEY", "").strip()
     if not key:
         return ""
+    cut = len(prompt.strip()) > HOOK_MAX_CHARS
+    answers = {}
     try:
         request = build_classify_request(prompt)
-        result = parse_classify_response(call(request, key, timeout=HOOK_TIMEOUT))
+        data = jev_client.send(request, env, timeout=HOOK_TIMEOUT, call=adapt(call))
+        if isinstance(data, dict) and isinstance(data.get("answers"), dict):
+            answers = data["answers"]
+        result = parse_classify_response(data)
     except Exception as err:
+        jev_client.log_decision("prompt", prompt, answers, cut)
         # Name the type and the HTTP status only: never the key, str(err) or the prompt.
-        status = getattr(err, "code", None)
-        label = type(err).__name__ + (" " + str(status) if status is not None else "")
-        return json.dumps({"systemMessage": "Jev classify failed: " + label})
+        return json.dumps({"systemMessage": "Jev classify failed: " + jev_client.error_label(err)})
+    jev_client.log_decision("prompt", prompt, answers, cut)
     return json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                               "additionalContext": hook_context(result)}})
 
 
 def call_jev(payload, key, timeout=30):
-    """POST the payload to Jev and return the parsed JSON. The key is never in an error."""
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        ENDPOINT,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    """POST the payload to Jev through jev_client and return the parsed JSON."""
+    return jev_client.post_json(payload, key, timeout, ENDPOINT)
 
 
 def main(argv=None):
@@ -251,6 +252,12 @@ def main(argv=None):
     if (args.file is None) == (args.text is None):
         print("Give exactly one of a file path or --text.", file=sys.stderr)
         return 2
+
+    policy = load_policy()
+    if policy["mode"] == "off":
+        print("Jev disabled by policy (_local/jev-policy.json)", file=sys.stderr)
+        return 2
+
     try:
         raw = args.text if args.text is not None else pathlib.Path(args.file).read_text(encoding="utf-8")
         payload = build_request(raw)
@@ -258,20 +265,30 @@ def main(argv=None):
         print("Bad input: " + str(err), file=sys.stderr)
         return 2
 
+    allowed, reason = jev_client.may_send(raw, "meta", policy)
+    if not allowed:
+        print("Jev not called: " + reason, file=sys.stderr)
+        return 2
+
     key = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if not key:
         print("TYPESAFE_API_KEY is not set. Set it in your shell; never put it in a file.", file=sys.stderr)
         return 2
 
+    cut = len(raw.strip()) > MAX_CHARS
+    answers = {}
     try:
-        result = parse_response(call_jev(payload, key))
+        data = jev_client.send(payload, os.environ, timeout=BUILD_TIMEOUT, call=adapt(call_jev))
+        if isinstance(data, dict) and isinstance(data.get("answers"), dict):
+            answers = data["answers"]
+        result = parse_response(data)
     except (urllib.error.URLError, OSError, ValueError) as err:
+        jev_client.log_decision("build", raw, answers, cut)
         # Name the type and the HTTP status only. str(err) is never printed.
-        status = getattr(err, "code", None)
-        label = type(err).__name__ + (" " + str(status) if status is not None else "")
-        print("Jev call failed: " + label, file=sys.stderr)
+        print("Jev call failed: " + jev_client.error_label(err), file=sys.stderr)
         return 3
 
+    jev_client.log_decision("build", raw, answers, cut)
     print(json.dumps(result))
     return 0
 
