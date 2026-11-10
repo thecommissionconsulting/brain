@@ -282,6 +282,23 @@ def run_cases(tmp):
     ])
     bad = run_day("2026-11-10", tz, projects, wiki, repos)
     case("malformed and bad-timestamp lines are counted", bad["skipped_lines"], 2)
+    print("lines that carry no session")
+    snap_clean = pathlib.Path(tmp) / "snap-clean"
+    write(snap_clean, "acme", "snapshots", [
+        {"type": "file-history-snapshot", "messageId": "m1", "snapshot": {}},
+        {"type": "summary", "summary": "a summary", "leafUuid": "leaf-1"},
+        user("2026-11-10T10:30:00Z", "s-snap", repo_s, "after the snapshots"),
+    ])
+    clean = run_day("2026-11-10", tz, snap_clean, wiki, repos)
+    case("snapshot and summary lines are not counted", clean["skipped_lines"], 0)
+    case("the session beside them is still kept", session_by_id(clean, "s-snap") is not None, True)
+    snap_noid = pathlib.Path(tmp) / "snap-noid"
+    write(snap_noid, "acme", "timed", [
+        {"type": "user", "timestamp": "2026-11-10T10:45:00Z",
+         "message": {"role": "user", "content": "no session id"}},
+    ])
+    noid = run_day("2026-11-10", tz, snap_noid, wiki, repos)
+    case("a timestamped line with no session is counted", noid["skipped_lines"], 1)
     write(projects, "acme/sub", "nested", [
         user("2026-11-10T09:00:00Z", "s-nested", repo_s, "in a subfolder"),
     ])

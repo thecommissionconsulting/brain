@@ -218,7 +218,9 @@ def _scan_file(path, day, tz, sessions, titles, cur):
             continue
         sid = obj.get("sessionId")
         if not isinstance(sid, str) or not sid:
-            skipped += 1
+            # A line with neither a session nor a time (snapshots, summaries) is metadata, not a fault.
+            if "timestamp" in obj:
+                skipped += 1
             continue
         if isinstance(obj.get("relocatedCwd"), str):
             cur[sid] = obj["relocatedCwd"]
