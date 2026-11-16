@@ -14,6 +14,7 @@ Bare names resolve in this order: scripts/, .githooks/, .github/workflows/, then
 
 CLI: python scripts/check_gates.py (run from the brain root). Prints ::error:: and ::warning::
 lines and a summary. Exit 1 if there is any error.
+python scripts/check_gates.py --counts prints the live totals (HARD, WARN, MANUAL, retired) and exits 0.
 
 Enforces R-62: every HARD rule names a gate file that exists, and a .py gate names its rule id.
 """
@@ -32,7 +33,7 @@ SEARCH = ("scripts", ".githooks", ".github/workflows")
 
 
 def rows(text):
-    """Each register row as {"id", "level", "gate"}. The register's columns are fixed."""
+    """Each register row as {"id", "level", "gate", "status"}. The register's columns are fixed."""
     out = []
     for line in text.splitlines():
         if not ROW.match(line):
@@ -42,6 +43,7 @@ def rows(text):
             "id": cells[0] if len(cells) > 0 else "",
             "gate": cells[4] if len(cells) > 4 else "",
             "level": cells[5] if len(cells) > 5 else "",
+            "status": cells[6] if len(cells) > 6 else "",
         })
     return out
 
@@ -110,8 +112,34 @@ def hard_count(root):
     return sum(1 for row in rows(rules.read_text(encoding="utf-8")) if "HARD" in row["level"])
 
 
+def level_counts(root):
+    """Live totals of the register: HARD, WARN and MANUAL rows, plus retired rows.
+
+    A retired row counts only as retired. The level is the first word of the Level cell,
+    with the ** marks removed, so "**HARD** (local)" counts as HARD.
+    """
+    counts = {"HARD": 0, "WARN": 0, "MANUAL": 0, "retired": 0}
+    rules = pathlib.Path(root) / "_ai" / "rules.md"
+    if not rules.is_file():
+        return counts
+    for row in rows(rules.read_text(encoding="utf-8")):
+        if row["status"] == "retired":
+            counts["retired"] += 1
+            continue
+        words = row["level"].replace("*", "").split()
+        level = words[0] if words else ""
+        if level in counts:
+            counts[level] += 1
+    return counts
+
+
 def main():
     root = pathlib.Path.cwd()
+    if "--counts" in sys.argv[1:]:
+        counts = level_counts(root)
+        print("HARD " + str(counts["HARD"]) + ", WARN " + str(counts["WARN"]) + ", MANUAL "
+              + str(counts["MANUAL"]) + ", retired " + str(counts["retired"]))
+        return 0
     errors, warnings = check(root)
     for message in errors:
         print("::error::" + message)

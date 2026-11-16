@@ -26,8 +26,8 @@ def case(name, got, want):
           "want " + str(want)[:40].ljust(40) + " got " + str(got)[:40])
 
 
-def reg(rule_id, level, gate):
-    return "| %s | Test | A rule | §Test | %s | %s | ok |" % (rule_id, gate, level)
+def reg(rule_id, level, gate, status="ok"):
+    return "| %s | Test | A rule | §Test | %s | %s | %s |" % (rule_id, gate, level, status)
 
 
 def make_brain(base, rows, files):
@@ -128,6 +128,24 @@ def main():
         case("the CLI exits 1 on an error", proc.returncode, 1)
         case("the CLI prints ::error:: lines", "::error::R-106" in proc.stdout, True)
         case("the CLI prints a summary line", "check_gates: 8 HARD rule(s)" in proc.stdout, True)
+
+    print("level counts")
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [
+            reg("R-201", "**HARD**", "`a.py`"),
+            reg("R-202", "**HARD**", "`b.py`"),
+            reg("R-203", "WARN", "by hand"),
+            reg("R-204", "MANUAL", "—"),
+            reg("R-205", "**HARD**", "`c.py`", status="retired"),
+        ]
+        brain = make_brain(tmp, rows, {})
+        case("counts_basic: retired rows are counted apart",
+             cg.level_counts(brain),
+             {"HARD": 2, "WARN": 1, "MANUAL": 1, "retired": 1})
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = make_brain(tmp, [reg("R-206", "**HARD** (local)", "`d.py`")], {})
+        case("counts_local_suffix: '**HARD** (local)' counts as HARD",
+             cg.level_counts(brain)["HARD"], 1)
 
     print("this checkout")
     errors, _ = cg.check(ROOT)
