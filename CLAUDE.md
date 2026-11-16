@@ -75,6 +75,6 @@ The summary goes to TypeSafe, so it carries no secrets or client material. The k
 only in the `TYPESAFE_API_KEY` environment variable.
 <!-- block:build-flow-brain:end -->
 
-Full contract: `_ai/rules.md` — all 60 rules and their gates, plus permissions,
+Full contract: `_ai/rules.md` — every rule and its gate, plus permissions,
 data classification and the frontmatter schema. Writing style: `_ai/rules.md` §Writing.
 Skills are plugins, not files in this repo: see the wiki's `index.md` §5.
