@@ -3,6 +3,9 @@
 Runs the gate against a throwaway wiki in the temp directory (BRAIN_WIKI points at it)
 and against a BRAIN_WIKI that does not exist. Never touches a real wiki.
 """
+import datetime
+import importlib.util
+import json
 import os
 import pathlib
 import subprocess
@@ -11,6 +14,9 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "scripts" / "session_gate.py"
+spec = importlib.util.spec_from_file_location("session_gate", GATE)
+sg = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sg)
 
 
 def run(wiki_value, home_value):
@@ -56,6 +62,25 @@ def main():
         check("wiki: Rules line is last",
               p.stdout.strip().splitlines()[-1] == f"Rules: {ROOT.as_posix()}/_ai/rules.md",
               fails)
+
+    print("jev median")
+    with tempfile.TemporaryDirectory() as tmp:
+        log = pathlib.Path(tmp)
+        check("median: empty dir gives None", sg.jev_median(log) is None, fails)
+
+        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        rows = [{"use": "prompt", "ms": ms} for ms in (100, 300, 200)]
+        rows.append({"use": "prompt", "time": "no ms here"})
+        (log / (today + ".jsonl")).write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        (log / "2000-01-01.jsonl").write_text(json.dumps({"ms": 9999}) + "\n", encoding="utf-8")
+        check("median: records 100, 300, 200 give 200", sg.jev_median(log) == 200, fails)
+
+    print("jev line")
+    check("jev line: None gives no part", sg.jev_part(None) is None, fails)
+    check("jev line: 200 ms", sg.jev_part(200) == "jev 200 ms", fails)
+    check("jev line: 4000 ms is not over", sg.jev_part(4000) == "jev 4000 ms", fails)
+    check("jev line: 4001 ms is over (R-67)", sg.jev_part(4001) == "jev OVER 4001 ms (R-67)", fails)
 
     print(f"\ntest_session_gate: {fails[1] - fails[0]} passed, {fails[0]} failed.")
     return 1 if fails[0] else 0

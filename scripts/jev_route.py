@@ -41,6 +41,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 import urllib.error
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -210,17 +211,23 @@ def run_hook(stdin_text, env, call=None, scan=None, policy=None):
         return ""
     cut = len(prompt.strip()) > HOOK_MAX_CHARS
     answers = {}
+    ms = None
+    started = None
     try:
         request = build_classify_request(prompt)
+        started = time.monotonic()
         data = jev_client.send(request, env, timeout=HOOK_TIMEOUT, call=adapt(call))
+        ms = int((time.monotonic() - started) * 1000)
         if isinstance(data, dict) and isinstance(data.get("answers"), dict):
             answers = data["answers"]
         result = parse_classify_response(data)
     except Exception as err:
-        jev_client.log_decision("prompt", prompt, answers, cut)
+        if ms is None and started is not None:
+            ms = int((time.monotonic() - started) * 1000)
+        jev_client.log_decision("prompt", prompt, answers, cut, ms=ms)
         # Name the type and the HTTP status only: never the key, str(err) or the prompt.
         return json.dumps({"systemMessage": "Jev classify failed: " + jev_client.error_label(err)})
-    jev_client.log_decision("prompt", prompt, answers, cut)
+    jev_client.log_decision("prompt", prompt, answers, cut, ms=ms)
     return json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                               "additionalContext": hook_context(result)}})
 

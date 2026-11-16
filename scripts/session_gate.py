@@ -11,10 +11,16 @@ number is never duplicated. With no wiki on this machine, the maps and budget li
 replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s,
 `check_links.py` 2.1s) stay in CI; they are too slow to pay for on every session.
 
+It also reports the median time of today's and yesterday's Jev calls from the decision
+log (R-67), and marks it OVER above 4 s.
+
 Always exits 0. This informs, it never blocks a session.
 """
 import ast
+import datetime
+import json
 import pathlib
+import statistics
 import subprocess
 import sys
 
@@ -23,6 +29,8 @@ import wiki_root  # noqa: E402
 
 BRAIN = wiki_root.BRAIN
 SCRIPTS = BRAIN / "scripts"
+JEV_LOG = BRAIN / "_local" / "jev-log"
+JEV_LIMIT_MS = 4000  # R-67: a per-prompt hook finishes within 4 s in total
 
 
 def budget(wiki):
@@ -37,6 +45,39 @@ def budget(wiki):
                 isinstance(t, ast.Name) and t.id == "INDEX_MD_MAX_BYTES" for t in node.targets):
             limit = ast.literal_eval(node.value)
     return len(index.read_bytes()), limit
+
+
+def jev_median(log_dir):
+    """Median ms over the Jev decision records for today and yesterday (UTC), or None.
+
+    Reads the files jev_client writes, named YYYY-MM-DD.jsonl; skips lines with no ms.
+    """
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    names = {(today - datetime.timedelta(days=back)).isoformat() + ".jsonl" for back in (0, 1)}
+    times = []
+    for name in names:
+        path = pathlib.Path(log_dir) / name
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                ms = json.loads(line).get("ms")
+            except (ValueError, AttributeError):
+                continue
+            if isinstance(ms, int) and not isinstance(ms, bool):
+                times.append(ms)
+    if not times:
+        return None
+    return int(statistics.median(times))
+
+
+def jev_part(ms):
+    """The session-line part for a median, or None when there is no median."""
+    if ms is None:
+        return None
+    if ms > JEV_LIMIT_MS:
+        return f"jev OVER {ms} ms (R-67)"
+    return f"jev {ms} ms"
 
 
 def gate(label, script, cwd, parts, red, args=()):
@@ -73,6 +114,10 @@ def main():
         if size is not None and limit:
             over = size > limit
             parts.append(f"index.md {size}/{limit}" + (" OVER (R-10)" if over else ""))
+
+    jev = jev_part(jev_median(JEV_LOG))
+    if jev is not None:
+        parts.append(jev)
 
     print("vault gates: " + " | ".join(parts))
     for note in notes:

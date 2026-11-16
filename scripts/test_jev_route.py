@@ -11,7 +11,10 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.request
 
@@ -29,7 +32,7 @@ OFF = {"mode": "off"}
 LOGGED = []
 
 
-def record_log(use, sent_text, answers, cut, log_dir=None):
+def record_log(use, sent_text, answers, cut, log_dir=None, ms=None):
     """Stands in for jev_client.log_decision: keeps only what it would write, never _local/.
 
     The text itself is not kept: the real log stores only its SHA-256, and that is
@@ -38,6 +41,7 @@ def record_log(use, sent_text, answers, cut, log_dir=None):
     LOGGED.append((use, sorted(answers), cut))
 
 
+REAL_LOG = jc.log_decision
 jc.log_decision = record_log
 
 
@@ -357,6 +361,28 @@ def main():
 
     code, out, err = run_main(["--hook", "--text", "x"])
     case("main --hook with --text exits 2", code, 2)
+
+    # --- timing: the hook records how long the Jev call took (R-67) ---
+    timed_dir = pathlib.Path(tempfile.mkdtemp(prefix="jev-route-ms-"))
+
+    def timed_log(use, sent_text, answers, cut, log_dir=None, ms=None):
+        REAL_LOG(use, sent_text, answers, cut, timed_dir, ms=ms)
+
+    def slow_question(payload, key, timeout=30):
+        time.sleep(0.01)
+        return kind_answer("question", 0.9)
+
+    try:
+        jc.log_decision = timed_log
+        jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
+                    {"TYPESAFE_API_KEY": "test-key"}, call=slow_question, scan=clean, policy=META)
+        records = [json.loads(line) for f in sorted(timed_dir.glob("*.jsonl"))
+                   for line in f.read_text(encoding="utf-8").splitlines()]
+        case("hook_logs_ms: one record written", len(records), 1)
+        case("hook_logs_ms: ms >= 10", records[0].get("ms", -1) >= 10 if records else False, True)
+    finally:
+        jc.log_decision = record_log
+        shutil.rmtree(timed_dir, ignore_errors=True)
 
     print("\ntest_jev_route: " + str(RAN[0] - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")
     return 1 if FAILS[0] else 0

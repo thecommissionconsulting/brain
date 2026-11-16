@@ -110,8 +110,11 @@ def send(payload, env, timeout=4, call=None):
     return box["ok"]
 
 
-def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR):
-    """Append one JSON line to log_dir/YYYY-MM-DD.jsonl. Never raises; never stores the text."""
+def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR, ms=None):
+    """Append one JSON line to log_dir/YYYY-MM-DD.jsonl. Never raises; never stores the text.
+
+    ms, when given, is the wall time of the Jev call in milliseconds (R-67).
+    """
     try:
         now = datetime.datetime.now(datetime.timezone.utc)
         top = {}
@@ -128,6 +131,8 @@ def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR):
             "sha256": hashlib.sha256(sent_text.encode("utf-8")).hexdigest(),
             "cut": bool(cut),
         }
+        if ms is not None:
+            record["ms"] = ms
         directory = pathlib.Path(log_dir)
         directory.mkdir(parents=True, exist_ok=True)
         with (directory / (now.strftime("%Y-%m-%d") + ".jsonl")).open("a", encoding="utf-8") as f:
