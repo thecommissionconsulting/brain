@@ -102,6 +102,7 @@ is how the vault gets more reliable over time. `python scripts/check_gates.py --
 | R-64 | Model | One Jev call per prompt returns the category, the skill, a confidence and a yes/no for PII still present. Jev's answers are hints; Opus decides. | §Permissions | — | MANUAL | **breached**: code pending; the hook asks only the category. |
 | R-63 | Structure | Session text is written once, in §Session text and §Response contract; every copy matches | §Session text | `sync_rules.py` | **HARD** | ok |
 | R-67 | Model | Per-prompt hooks finish within 4 s in total; `session_gate.py` reports the median Jev time. | §Permissions | `scripts/session_gate.py` | WARN (local) | ok |
+| R-68 | Model | Claude asks before editing `_ai/rules.md`, a gate script, `.githooks/` or `.claude/settings.json`. Bash writes are not caught. | §Permissions | `scripts/check_gates.py` | WARN (local) | ok |
 
 IDs not in use: R-29 and R-47 were never assigned. R-43, R-44 and R-57 are retired and are not counted.
 

@@ -17,7 +17,12 @@ lines and a summary. Exit 1 if there is any error.
 python scripts/check_gates.py --counts prints the live totals (HARD, WARN, MANUAL, retired) and exits 0.
 
 Enforces R-62: every HARD rule names a gate file that exists, and a .py gate names its rule id.
+
+Warns on R-68: each guarded gate file (GUARDED) has an Edit and a Write entry in
+permissions.ask of .claude/settings.json, so Claude asks before editing it. The warning never
+fails the run. Bash writes are not caught.
 """
+import json
 import pathlib
 import re
 import sys
@@ -30,6 +35,19 @@ TOKEN = re.compile(r"`([^`]+)`")
 GATE_SUFFIXES = (".py", ".yml", ".yaml", ".sh")
 GATE_NAMES = (".gitignore", ".gitattributes")
 SEARCH = ("scripts", ".githooks", ".github/workflows")
+GUARDED = (
+    "_ai/rules.md",
+    "scripts/hooks_guard.py",
+    "scripts/pii_gate.py",
+    "scripts/patterns.py",
+    "scripts/jev_client.py",
+    "scripts/check_gates.py",
+    "scripts/sync_rules.py",
+    "scripts/wiki_edit_gate.py",
+    ".claude/settings.json",
+    ".githooks/**",
+)
+ASK_RULE = re.compile(r"^(Edit|Write)\((.*)\)$")
 
 
 def rows(text):
@@ -69,6 +87,42 @@ def resolve(token, root):
         if path.is_file():
             return path
     return None
+
+
+def ask_rules(root):
+    """The (tool, path) pairs of Edit and Write entries in permissions.ask of the project settings.
+
+    One leading "./" or "/" is removed from each path, since a project rule anchors a path
+    starting with a single "/" to the project root. A missing or unreadable settings file gives none.
+    """
+    settings = pathlib.Path(root) / ".claude" / "settings.json"
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    permissions = data.get("permissions") if isinstance(data, dict) else None
+    asks = permissions.get("ask") if isinstance(permissions, dict) else None
+    if not isinstance(asks, list):
+        return set()
+    found = set()
+    for entry in asks:
+        match = ASK_RULE.match(entry.strip()) if isinstance(entry, str) else None
+        if not match:
+            continue
+        path = match.group(2)
+        if path.startswith("./"):
+            path = path[2:]
+        elif path.startswith("/"):
+            path = path[1:]
+        found.add((match.group(1), path))
+    return found
+
+
+def missing_ask_rules(root):
+    """Each GUARDED path that lacks an Edit entry or a Write entry in permissions.ask."""
+    found = ask_rules(root)
+    return [path for path in GUARDED
+            if ("Edit", path) not in found or ("Write", path) not in found]
 
 
 def check(root):
@@ -145,6 +199,8 @@ def main():
         print("::error::" + message)
     for message in warnings:
         print("::warning::" + message)
+    for path in missing_ask_rules(root):
+        print("::warning::" + path + ": no Edit and Write entry in permissions.ask (R-68)")
     print("check_gates: " + str(hard_count(root)) + " HARD rule(s), " + str(len(errors))
           + " error(s), " + str(len(warnings)) + " warning(s).")
     return 1 if errors else 0
