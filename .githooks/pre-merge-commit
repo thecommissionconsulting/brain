@@ -1,0 +1,4 @@
+#!/bin/sh
+# Vault guard. See scripts/hooks_guard.py for what this blocks and why.
+# Enable in a fresh clone with: python scripts/install_hooks.py
+exec "$(dirname "$0")/_python" scripts/hooks_guard.py pre-merge-commit

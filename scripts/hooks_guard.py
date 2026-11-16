@@ -30,8 +30,10 @@ Modes:
   pre-commit            staged changes
   commit-msg <file>     the message about to be recorded
   pre-push              refs on stdin, in git's pre-push format
+  pre-merge-commit      a merge commit about to be recorded (git merge --no-ff)
   range <base> <head>   an explicit commit range, for CI
 """
+import datetime
 import os
 import pathlib
 import re
@@ -176,6 +178,24 @@ def mode_pre_commit():
     scan_added_lines(git("diff", "--cached", "-U0", "--no-color"), "staged")
 
 
+def mode_pre_merge_commit():
+    # Fast-forward merges create no commit, so git runs no hook for them. The
+    # pre-push guard still refuses a push to main.
+    branch = current_branch()
+    if branch in PROTECTED:
+        if not ALLOW_MAIN:
+            err(f"R-34  a merge commit on `{branch}` needs a PR. Merge the topic branch on "
+                f"GitHub, or merge it on a topic branch.\n"
+                f"           An administrative merge on main needs VAULT_ALLOW_MAIN=1.")
+        else:
+            top = git("rev-parse", "--show-toplevel").strip() or "."
+            log = pathlib.Path(top) / "_local" / "main-bypass.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write(f"{stamp} pre-merge-commit {branch}\n")
+
+
 def mode_commit_msg(path):
     msg = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
     if re.search(r"^vault backup:", msg, re.M) and current_branch() in PROTECTED:
@@ -233,6 +253,8 @@ def main():
         mode_commit_msg(args[1])
     elif mode == "pre-push":
         mode_pre_push()
+    elif mode == "pre-merge-commit":
+        mode_pre_merge_commit()
     elif mode == "range":
         mode_range(args[1], args[2])
     else:
