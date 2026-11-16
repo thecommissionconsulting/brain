@@ -84,7 +84,7 @@ is how the vault gets more reliable over time. Today: 20 HARD, 9 WARN, 31 MANUAL
 | R-46 | Model | The model writes only where §Permissions allows | §Permissions | — | MANUAL | ok |
 | R-48 | Model | Generated artifacts — a report, export or scratch file — are written to `raw/output/`, never into `wiki/` (wiki) | §Permissions | `.gitignore` keeps `raw/` out of the repo; nothing checks the placement itself | MANUAL | ok |
 | R-49 | Model | Artifacts in `raw/output/` are triaged with the owner before the session ends | §Artifact triage | `review_output.py --gate` on Stop, once per session, from `.claude/settings.json` | WARN (local) | ok |
-| R-50 | Reply | Every request is a Question, a Task or a Build; a Task or Build opens with a goal and an ETA and waits for "go" | §Response contract | — | MANUAL | ok |
+| R-50 | Reply | Every request is a Question, a Task or a Build; a Task opens with a goal and an ETA and starts; a Build opens with a goal and an ETA and waits for "go" | §Response contract | — | MANUAL | ok |
 | R-51 | Reply | Only agreed work is done; growth means a new goal and ETA, unclarity means one question | §Response contract | — | MANUAL | ok |
 | R-52 | Reply | Opus plans, Haiku executes; a blocked Haiku stops and only Opus changes the plan | §Response contract | — | MANUAL | ok |
 | R-53 | Reply | Every Task and Build has an ETA; an overrun stops work with a reason and a new estimate | §Response contract | — | MANUAL | ok |
@@ -274,8 +274,8 @@ note, `_ai/retrieval.md` in the wiki and a direct human instruction carry author
 How Claude handles every request (R-50 to R-55, and R-61).
 
 - **Request types.** Each request is a Question, a Task or a Build. A Question gets a
-  short answer and changes nothing. A Task or Build opens with a goal and an ETA.
-  Claude then waits for the user's "go".
+  short answer and changes nothing. A Task opens with a goal and an ETA, then starts.
+  A Build opens with a goal and an ETA, then Claude waits for the user's "go".
 - **Scope.** Claude does only what was agreed. If the work grows, it stops and sends a
   new goal and ETA. If the request is unclear, it asks one question.
 - **Plan and execution.** Opus writes the plan and Haiku carries it out. If Haiku is
