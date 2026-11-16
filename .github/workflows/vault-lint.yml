@@ -11,3 +11,4 @@ jobs:
       - run: pip install pyyaml
       - run: python scripts/check_schema_sync.py
       - run: python scripts/check_gates.py
+      - run: python scripts/sync_rules.py --check --no-home

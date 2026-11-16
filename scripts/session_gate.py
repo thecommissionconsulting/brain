@@ -5,9 +5,10 @@ on SessionStart (see `.claude/settings.json`) so a session opens knowing the liv
 instead of discovering it in CI after a push.
 
 Only the sub-second gates run here — `check_maps.py` (~0.8s, run from the wiki),
-`check_schema_sync.py` (~0.5s) and `check_gates.py` (run from the brain) — plus the wiki's `index.md` byte
-budget, read straight from `check_links.py` so the number is never duplicated. With no
-wiki on this machine, the maps and budget lines are replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s,
+`check_schema_sync.py` (~0.5s), `check_gates.py` and `sync_rules.py --check` (run from the
+brain) — plus the wiki's `index.md` byte budget, read straight from `check_links.py` so the
+number is never duplicated. With no wiki on this machine, the maps and budget lines are
+replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s,
 `check_links.py` 2.1s) stay in CI; they are too slow to pay for on every session.
 
 Always exits 0. This informs, it never blocks a session.
@@ -38,19 +39,20 @@ def budget(wiki):
     return len(index.read_bytes()), limit
 
 
-def gate(label, script, cwd, parts, red):
+def gate(label, script, cwd, parts, red, args=()):
     path = SCRIPTS / script
+    tail = "".join(" " + arg for arg in args)
     if not path.exists():
         parts.append(f"{label} MISSING")
-        red.append((label, f"python \"{path.as_posix()}\""))
+        red.append((label, f"python \"{path.as_posix()}\"{tail}"))
         return
-    done = subprocess.run([sys.executable, str(path)], cwd=str(cwd),
+    done = subprocess.run([sys.executable, str(path), *args], cwd=str(cwd),
                           capture_output=True, text=True)
     if done.returncode == 0:
         parts.append(f"{label} ok")
     else:
         parts.append(f"{label} FAIL")
-        red.append((label, f"cd \"{cwd.as_posix()}\" && python \"{path.as_posix()}\""))
+        red.append((label, f"cd \"{cwd.as_posix()}\" && python \"{path.as_posix()}\"{tail}"))
 
 
 def main():
@@ -61,10 +63,12 @@ def main():
                      + "/scripts/install_vault.py --wiki <path>)")
         gate("schema", "check_schema_sync.py", BRAIN, parts, red)
         gate("gates", "check_gates.py", BRAIN, parts, red)
+        gate("sync", "sync_rules.py", BRAIN, parts, red, args=("--check",))
     else:
         gate("maps", "check_maps.py", wiki, parts, red)
         gate("schema", "check_schema_sync.py", BRAIN, parts, red)
         gate("gates", "check_gates.py", BRAIN, parts, red)
+        gate("sync", "sync_rules.py", BRAIN, parts, red, args=("--check",))
         size, limit = budget(wiki)
         if size is not None and limit:
             over = size > limit

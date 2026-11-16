@@ -13,8 +13,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "scripts" / "session_gate.py"
 
 
-def run(wiki_value):
-    env = dict(os.environ, BRAIN_WIKI=wiki_value)
+def run(wiki_value, home_value):
+    env = dict(os.environ, BRAIN_WIKI=wiki_value, VAULT_CLAUDE_HOME=home_value)
     return subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True,
                           cwd=str(ROOT), env=env)
 
@@ -29,11 +29,13 @@ def main():
     fails = [0, 0]
     with tempfile.TemporaryDirectory() as tmp:
         empty = pathlib.Path(tmp) / "no-such-wiki"
+        home = pathlib.Path(tmp) / "no-such-claude-home"
 
-        p = run(str(empty))
+        p = run(str(empty), str(home))
         check("no wiki: exits 0", p.returncode == 0, fails)
         check("no wiki: says not configured", "wiki: not configured" in p.stdout, fails)
         check("no wiki: the gate checker runs", "gates ok" in p.stdout, fails)
+        check("no wiki: the sync check runs", "sync ok" in p.stdout, fails)
         check("no wiki: no budget line", "index.md " not in p.stdout, fails)
         check("no wiki: Rules line is last",
               p.stdout.strip().splitlines()[-1] == f"Rules: {ROOT.as_posix()}/_ai/rules.md",
@@ -45,9 +47,10 @@ def main():
         (wiki / "index.md").write_text(text, encoding="utf-8")
         size = len(text.encode("utf-8"))
 
-        p = run(str(wiki))
+        p = run(str(wiki), str(home))
         check("wiki: exits 0", p.returncode == 0, fails)
         check("wiki: the gate checker runs", "gates ok" in p.stdout, fails)
+        check("wiki: the sync check runs", "sync ok" in p.stdout, fails)
         check(f"wiki: budget in bytes ({size}/32768)",
               f"index.md {size}/32768" in p.stdout, fails)
         check("wiki: Rules line is last",
