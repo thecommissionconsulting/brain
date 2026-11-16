@@ -154,8 +154,8 @@ Replace `<brain clone path>` below with the folder that holds your brain clone.
 
 Check: `Test-Path "<brain clone path>\marketplace\.claude-plugin\marketplace.json"` prints `True`.
 
-**4c. Add the marketplace and install the mods.** The marketplace also lists `central`
-and `humanizer`. They are retired, so do not install them.
+**4c. Add the marketplace and install the mods.** The marketplace also lists `humanizer`. It is retired, so do not install it.
+`central` is retired and no longer in the marketplace.
 
 ```powershell
 claude plugin marketplace add "<brain clone path>/marketplace"
