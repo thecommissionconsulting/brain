@@ -1002,6 +1002,39 @@ def installer_wiring_cases():
             case("global_rules: the brain CLAUDE.md is never written",
                  (brain / "CLAUDE.md").read_text(encoding="utf-8"), "brain text\n")
 
+            claude4 = base / "claude4"
+            claude4.mkdir()
+            home(claude4)
+            case("global_rules_missing_file: not ok before apply",
+                 iv.step_global_rules()[0], False)
+            ok, _ = iv.apply_global_rules()
+            case("global_rules_missing_file: apply ok", ok, True)
+            case("global_rules_missing_file: the file now exists",
+                 (claude4 / "CLAUDE.md").is_file(), True)
+            text = (claude4 / "CLAUDE.md").read_text(encoding="utf-8") \
+                if (claude4 / "CLAUDE.md").is_file() else ""
+            case("global_rules_missing_file: all three blocks are marked",
+                 all(f"<!-- block:{n}:start -->" in text and f"<!-- block:{n}:end -->" in text
+                     for n in ("global-guardrails", "response-contract", "build-flow-global")), True)
+            case("global_rules_missing_file: step ok after apply",
+                 iv.step_global_rules()[0], True)
+
+            claude5 = base / "claude5"
+            claude5.mkdir()
+            (claude5 / "CLAUDE.md").write_text("# notes\n", encoding="utf-8")
+            home(claude5)
+            ok, _ = iv.apply_global_rules()
+            case("global_rules_no_headings: apply fails", ok, False)
+            case("global_rules_no_headings: the file is untouched",
+                 (claude5 / "CLAUDE.md").read_text(encoding="utf-8"), "# notes\n")
+            case("global_rules_no_headings: step not ok", iv.step_global_rules()[0], False)
+
+            home(base / "claude6")
+            ok, _ = iv.apply_global_rules()
+            case("global_rules_no_claude_dir: apply fails", ok, False)
+            case("global_rules_no_claude_dir: no folder made",
+                 (base / "claude6").exists(), False)
+
             # ---- session files ----
             session = brain / "_local" / "CLAUDE.md"
             case("session_files_created: not ok before apply", iv.step_session_files()[0], False)

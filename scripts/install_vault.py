@@ -1900,15 +1900,32 @@ def adopt_rules(text, source):
 
 
 def step_global_rules():
+    path = claude_home() / "CLAUDE.md"
+    if not path.is_file():
+        return False, ("no home CLAUDE.md at " + str(path),
+                       "create it with the rule blocks from _ai/rules.md")
     problems = home_rules_problems()
     if not problems:
         return True, ("the home CLAUDE.md rule blocks match _ai/rules.md", "nothing to do")
-    return False, ("; ".join(problems), "write the rule blocks into " + str(claude_home() / "CLAUDE.md"))
+    return False, ("; ".join(problems), "write the rule blocks into " + str(path))
 
 
 def apply_global_rules():
-    path = claude_home() / "CLAUDE.md"
+    home = claude_home()
+    if not home.is_dir():
+        return False, "no " + str(home) + " folder. Start Claude Code once, then run this again."
+    path = home / "CLAUDE.md"
     notes = []
+    if not path.is_file():
+        full = ("## Guardrails — apply every session",
+                "## How Claude responds",
+                "## Build flow — only for a request you identify as a Build")
+        new, why = adopt_rules("\n\n".join(full) + "\n", rules_source())
+        if new is None:
+            return False, why + ". Nothing created."
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(new)
+        notes.append("created " + str(path))
     if path.is_file():
         text = read_text_raw(path)
         found = sync_rules.blocks(text)
