@@ -23,6 +23,7 @@ RAN = [0]
 CREATED = []
 KEY_ENV = {"TYPESAFE_API_KEY": "test-key"}
 OFF = {"mode": "off"}
+META = {"mode": "meta"}
 
 
 def case(name, got, want):
@@ -173,6 +174,33 @@ def main():
     print("log ms")
     case("log_decision_ms: ms=12 is written", json.loads(read_log(after_logging("x", ms=12)))["ms"], 12)
     case("log_decision_ms: no ms, no key", "ms" in json.loads(read_log(after_logging("x"))), False)
+
+    print("mask")
+    case("mask: one span becomes a tag",
+         jc.mask("mail a@b.co now", scan=lambda t: [("email address", 5, 11)]),
+         ("mail [PII:email address] now", ["email address"]))
+    case("mask: adjacent spans, text order",
+         jc.mask("abcdef", scan=lambda t: [("x", 0, 2), ("y", 2, 4)]),
+         ("[PII:x][PII:y]ef", ["x", "y"]))
+    case("mask: real scan finds email", jc.mask("a@b.co")[0], "[PII:email address]")
+    case("mask: real scan finds secret value",
+         jc.mask("password: Tr0ub4dor3xK")[0], "password: [PII:secret assignment]")
+    case("mask: no hits leaves text alone", jc.mask("hello there", scan=clean), ("hello there", []))
+
+    print("prepare")
+    case("prepare: masks and allows",
+         jc.prepare("hi a@b.co", "meta", META, scan=lambda t: [("email address", 3, 9)]),
+         (True, "ok", "hi [PII:email address]", ["email address"]))
+    case("prepare: policy off", jc.prepare("hi", "meta", OFF, scan=clean), (False, "policy off", "", []))
+    case("prepare: empty text", jc.prepare("  ", "meta", META, scan=clean), (False, "empty", "", []))
+    case("prepare: zone not allowed", jc.prepare("hi", "note", META, scan=clean),
+         (False, "zone not allowed", "", []))
+    case("prepare: scan failure blocks", jc.prepare("hi", "meta", META, scan=boom),
+         (False, "PII scan unavailable", "", []))
+
+    print("cut")
+    case("cut: tag cut back before its start", jc.cut("ab [PII:email address]", 6), "ab ")
+    case("cut: plain text at limit", jc.cut("abcdef", 4), "abcd")
 
     remove_tmp()
     print("\ntest_jev_client: " + str(RAN[0] - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")

@@ -6,7 +6,8 @@ metadata Claude wrote about its own work. No note text leaves the machine: any o
 mode, "full" included, reads as "off". The endpoint is fixed (DEFAULT_ENDPOINT); the
 JEV_ENDPOINT variable is not read.
 
-Every call passes the PII scan (patterns.scan) first. The API key comes only from the
+Every call is masked first: each patterns.scan match becomes a `[PII:<label>]` tag and is
+never sent raw. The API key comes only from the
 TYPESAFE_API_KEY environment variable and is never printed, logged or written to a file.
 send() enforces a total deadline. Decisions are logged with a SHA-256 of the sent text,
 never the text itself. Logging never raises.
@@ -62,6 +63,55 @@ def may_send(text, zone, policy, scan=None):
     if hits:
         return False, "personal data"
     return True, "ok"
+
+
+def mask(text, scan=None):
+    """(masked text, labels replaced, in text order). Each scan span becomes [PII:<label>].
+
+    scan=None uses patterns.scan. Any exception from the scan is raised to the caller.
+    """
+    if scan is None:
+        from patterns import scan
+    spans = sorted(scan(text), key=lambda hit: hit[1])
+    parts, labels, pos = [], [], 0
+    for label, start, end in spans:
+        start = max(start, pos)
+        if end <= start:
+            continue
+        parts.append(text[pos:start])
+        parts.append("[PII:" + label + "]")
+        labels.append(label)
+        pos = end
+    parts.append(text[pos:])
+    return "".join(parts), labels
+
+
+def prepare(text, zone, policy, scan=None):
+    """(allowed, reason, masked, tags). Reasons: ok, empty, policy off, zone not allowed,
+    PII scan unavailable. masked is "" and tags is [] when not allowed."""
+    if policy.get("mode") not in MODES or not MODES[policy["mode"]]:
+        return False, "policy off", "", []
+    if not text.strip():
+        return False, "empty", "", []
+    if zone not in MODES[policy["mode"]]:
+        return False, "zone not allowed", "", []
+    try:
+        masked, tags = mask(text, scan)
+    except Exception:
+        return False, "PII scan unavailable", "", []
+    return True, "ok", masked, tags
+
+
+def cut(text, limit):
+    """text cut to limit characters. A tag cut off by the limit is dropped whole: if the
+    result ends inside a [PII: tag (or a partial "[PII:" prefix), it is cut back before it."""
+    out = text[:limit]
+    start = out.rfind("[")
+    if start != -1:
+        tail = out[start:]
+        if "]" not in tail and ("[PII:".startswith(tail) or tail.startswith("[PII:")):
+            out = out[:start]
+    return out
 
 
 def post_json(payload, key, timeout, endpoint):
