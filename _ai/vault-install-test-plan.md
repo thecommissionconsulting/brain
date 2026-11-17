@@ -65,7 +65,7 @@ Only undetectable fields are asked about, then filled with `--bindings key=value
 
 Once installed, these run without further action. From the gitignored
 `.claude/settings.local.json`, written by `install_vault.py` by absolute path: `session_gate.py`
-on `SessionStart`, `pii_gate.py` on `PreToolUse`, and `review_output.py --gate` on `Stop`. From `.githooks/`: `hooks_guard.py` on
+on `SessionStart`, `pii_gate.py` and `wiki_edit_gate.py` on `PreToolUse`, and `review_output.py --gate` on `Stop`. From `.githooks/`: `hooks_guard.py` on
 commit and push. In CI: `vault-lint.yml`, `branch-policy.yml`, `secret-scan.yml`.
 
 ## 3. Test strategy
