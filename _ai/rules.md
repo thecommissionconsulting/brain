@@ -69,7 +69,7 @@ is how the vault gets more reliable over time. `python scripts/check_gates.py --
 | R-31 | Data | Machine and personal bindings live only in `_local/` | [[setup]] | `.gitignore` | **HARD** | ok |
 | R-32 | Data | `raw/`, `assets/`, `.confluence-private/` are never committed | `.gitignore` | `.gitignore`, plus `hooks_guard.py` which also catches `git add -f` | **HARD** | ok |
 | R-33 | Data | Content-level exclusions inside approved zones | `exclusions.py` docstring | `hooks_guard.py` warns on rates, tenant GUIDs and bulk external addresses at commit; `pii_gate.py` blocks reading them into the prompt | WARN | **breached, now visible** — a whole-tree scan on 2026-09-17 found charge-out rates in ~50 `services-team/trackers/` notes, 89 external addresses in `ludo-s-schedule.md` and 62 in the graduate-programme candidate evaluation. The gate warns on new occurrences; the existing ones are untriaged. The tracker and schedule files named on 2026-09-17 were not found on 2026-11-16. |
-| R-65 | Data | A Jev PII 'yes' is logged in `_local/`. At the next session Opus drafts a sweep pattern and a test; the owner approves before it is added. | §Permissions | — | MANUAL | **breached**: code pending. |
+| R-65 | Data | A Jev PII 'yes' is logged in `_local/`. At the next session Opus drafts a sweep pattern and a test; the owner approves before it is added. | §Permissions | `jev_client.log_pii`; `scripts/jev_pii.py`; `session_gate.py` shows the count | MANUAL | ok |
 | R-66 | Data | `pii_gate.py` keeps bulk personal data from reads out of the prompt. | §Permissions | `pii_gate.py` | **HARD** (local) | ok |
 | R-34 | Git | `main` changes by PR, merged on GitHub. The nightly digest (R-60) is the one unattended push. | [[setup]] | `hooks_guard.py` refuses a commit or push to `main`, and a force-push or delete of it. Still unenforceable server-side on GitHub Free. Fast-forward merges and `git pull` do not fire a hook; the pre-push guard still refuses a push to `main`. | **HARD** (local) | ok |
 | R-35 | Git | No `vault backup:` commits on `main` | [[setup]] | `hooks_guard.py` commit-msg, then `branch-policy.yml` | **HARD** | ok |
@@ -91,15 +91,15 @@ is how the vault gets more reliable over time. `python scripts/check_gates.py --
 | R-52 | Reply | Opus plans, Haiku executes; a blocked Haiku stops and only Opus changes the plan | §Response contract | — | MANUAL | ok; nothing checks which model executes |
 | R-53 | Reply | Every Task and Build has an ETA; an overrun stops work with a reason and a new estimate | §Response contract | — | MANUAL | ok |
 | R-54 | Reply | Replies lead with the point; a Question gets about five lines | §Response contract | — | MANUAL | ok |
-| R-55 | Reply | A Build runs the Build flow: Jev picks the superpowers skill, Elephant drafts, a Goldfish subagent reviews, the owner approves | §Response contract | `scripts/jev_route.py` picks the skill; the rest is unguarded | MANUAL | ok |
-| R-56 | Model | Before a prompt leaves the machine, a local sweep masks PII with tags. Jev gets only the masked prompt, or a Build summary, at a fixed endpoint. The sweep fails closed. Named scripts may write `_local/`; the model may not. | §Permissions | `scripts/jev_client.py` `may_send`, `load_policy` and `send`. `scripts/jev_route.py` sends only through them | **HARD** (local) | **breached**: code pending. A flagged prompt is skipped, not masked. |
+| R-55 | Reply | A Build runs the Build flow: Jev picks the superpowers skill (the hook's skill hint is read first; `scripts/jev_route.py` runs only if the hint is missing or unsure), Elephant drafts, a Goldfish subagent reviews, the owner approves | §Response contract | `scripts/jev_route.py` picks the skill; the rest is unguarded | MANUAL | ok |
+| R-56 | Model | Before a prompt leaves the machine, a local sweep masks PII with tags. Jev gets only the masked prompt, or a Build summary, at a fixed endpoint. The sweep fails closed. Named scripts may write `_local/`; the model may not. | §Permissions | `scripts/jev_client.py` `mask`, `prepare`, `load_policy` and `send`. `scripts/jev_route.py` sends only through them | **HARD** (local) | ok |
 | R-57 | Model | Retired. | — | — | MANUAL | retired |
 | R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, written by install_vault.py into the gitignored `.claude/settings.local.json` by absolute path). Blocks a distinctive name; warns on a single-word folder name. Client repos too: `wiki_edit_gate.py --client`, wired by `install_vault.py --client-repo` | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
 | R-59 | Model | An edit to the wiki holds no instructions aimed at an AI model | §Permissions | `scripts/wiki_edit_gate.py`, pattern `AI_TEXT`. Warns only | WARN (local) | ok |
 | R-60 | Model | The nightly digest writes and updates wiki notes unattended. Every note it touches carries `source: nightly-digest`; it pushes to the wiki `main` only when the wiki checks pass, else it parks the work on a local `digest/<date>` branch | §Permissions | `scripts/nightly_digest.py`: pushes only after the wiki checks pass; otherwise parks the work on `digest/<date>` | **HARD** (local) | ok |
 | R-61 | Reply | The fresh-eyes review's depth follows `scripts/review_triage.py`: `quick` is one reviewer pass over the diff; `full` is the full review. | §Response contract | `scripts/review_triage.py` picks the depth; the review itself is unguarded | MANUAL | ok |
 | R-62 | Model | Every HARD rule names a gate file that exists in the repo; a `.py` gate names its rule id. | §How these reach a session | `scripts/check_gates.py` | **HARD** (CI and session gate) | ok |
-| R-64 | Model | One Jev call per prompt returns the category, the skill, a confidence and a yes/no for PII still present. Jev's answers are hints; Opus decides. | §Permissions | — | MANUAL | **breached**: code pending; the hook asks only the category. |
+| R-64 | Model | One Jev call per prompt returns the category, the skill, a confidence and a yes/no for PII still present. Jev's answers are hints; Opus decides. | §Permissions | `scripts/jev_route.py --hook` | MANUAL | ok |
 | R-63 | Structure | Session text is written once, in §Session text and §Response contract; every copy matches | §Session text | `sync_rules.py` | **HARD** | ok |
 | R-67 | Model | Per-prompt hooks finish within 4 s in total; `session_gate.py` reports the median Jev time. | §Permissions | `scripts/session_gate.py` | WARN (local) | ok |
 | R-68 | Model | Claude asks before editing `_ai/rules.md`, a gate script, `.githooks/` or `.claude/settings.json` or `.claude/settings.local.json`. Bash writes are not caught. | §Permissions | `scripts/check_gates.py` | WARN (local) | ok; manual check 2026-11-17: an Edit of scripts/pii_gate.py in auto mode showed a prompt (owner report). Edit and Write only: a Bash write, an installer run, or Claude Code saving an "always allow" choice can still change .claude/settings.local.json without a prompt |
@@ -217,8 +217,9 @@ What the model may do in this vault.
   retrieval route (R-48, R-26). What happens to it afterwards is §Artifact triage.
 - Run the read-only checks: `check_frontmatter.py`, `check_links.py`, `check_maps.py`,
   `check_schema_sync.py`, `session_gate.py`.
-- Run `scripts/jev_route.py` at the start of a Build (R-55). It sends the Build summary
-  to TypeSafe; the owner approved this on 2026-11-07.
+- A Build reads the skill hint the Jev hook adds to the prompt. Run `scripts/jev_route.py`
+  only if the hint is missing or unsure (R-55). It sends the masked Build summary to
+  TypeSafe; the owner approved this on 2026-11-07.
 - `scripts/new_note.py` may create a note, the folders it needs, its `index.md` §9 lines and the client's entry in `_ai/client-names.json` without asking; it never overwrites a note, and edits only an engagement's `last_touch:` when asked.
 
 **Ask first**
@@ -305,10 +306,10 @@ How Claude handles every request (R-50 to R-55, and R-61).
 It follows the Elephant-Goldfish model, with a superpowers skill in place of a generic
 design doc.
 
-1. **Route.** Write a short Build summary and run
-   `python scripts/jev_route.py --text "<summary>"`.
-   Jev returns one superpowers skill as JSON. If `ask_user` is true, or the script
-   fails, name your best pick and ask the user.
+1. **Route.** Read the skill hint the Jev hook added to this prompt. Only if it is
+   missing or unsure, write a short Build summary and run
+   `python scripts/jev_route.py --text "<summary>"`. If `ask_user` is true, or the
+   script fails, name your best pick and ask the user.
 2. **Elephant.** Opus, with the full conversation, drafts the plan with that skill and
    saves it in `raw/output/`.
 3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the files
