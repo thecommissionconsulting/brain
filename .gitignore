@@ -9,6 +9,7 @@ _local/
 
 # Personal per-machine Claude Code overrides
 .claude/settings.local.json
+.claude/settings.local.json.bak-*
 
 # Skills arrive as plugins, not files in this repo (index.md section 5). Any
 # skill directory placed under .claude/skills/ is committed; loose files there

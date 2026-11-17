@@ -7,25 +7,6 @@
   },
   "plugins": [
     {
-      "name": "central",
-      "source": "./plugins/central",
-      "description": "In-house skills: answer-only replies with a PII prompt gate, security hooks that keep credentials out of the model's context, the caveman token-compression suite, document conversion, method skills for scoping and executing code changes, a data-model audit, and the vault tooling.",
-      "category": "development",
-      "keywords": [
-        "writing",
-        "tokens",
-        "engineering",
-        "refactor",
-        "migration",
-        "vault",
-        "data-modelling",
-        "audit",
-        "dbt",
-        "sap",
-        "security"
-      ]
-    },
-    {
       "name": "humanizer",
       "source": {
         "source": "url",

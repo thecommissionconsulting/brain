@@ -86,11 +86,11 @@ def read_log(log_dir):
     return "".join(f.read_text(encoding="utf-8") for f in sorted(log_dir.glob("*.jsonl")))
 
 
-def after_logging(text):
+def after_logging(text, ms=None):
     """Write one decision for text into a fresh log directory; return that directory."""
     log_dir = tmp()
     answers = {"kind": {"choice": "task", "confidence": 0.9, "probabilities": {"task": 0.9}}}
-    jc.log_decision("classify", text, answers, False, log_dir)
+    jc.log_decision("classify", text, answers, False, log_dir, ms=ms)
     return log_dir
 
 
@@ -169,6 +169,10 @@ def main():
     case("log: no text in the log", "secret words" in read_log(after_logging("secret words")), False)
     case("log: hash is in the log", sha256("secret words") in read_log(after_logging("secret words")), True)
     case("log: unwritable dir does not raise", raised(jc.log_decision, "t", "x", {}, False, readonly_dir()), None)
+
+    print("log ms")
+    case("log_decision_ms: ms=12 is written", json.loads(read_log(after_logging("x", ms=12)))["ms"], 12)
+    case("log_decision_ms: no ms, no key", "ms" in json.loads(read_log(after_logging("x"))), False)
 
     remove_tmp()
     print("\ntest_jev_client: " + str(RAN[0] - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")

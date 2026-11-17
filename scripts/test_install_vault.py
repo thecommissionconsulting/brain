@@ -17,6 +17,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -657,10 +658,80 @@ def matcher_cases():
     case("the installer's PII matcher keeps the Edit tools",
          all(t in iv.PII_MATCHER.split("|") for t in ("Edit", "Write", "NotebookEdit")), True)
     brain = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    pii = [g["matcher"] for g in brain["hooks"]["PreToolUse"] if "pii_gate.py" in
-           json.dumps(g["hooks"])]
-    case("the brain's PII matcher covers MultiEdit", [("MultiEdit" in m) for m in pii], [True])
-    case("the brain's PII matcher is the installer's", pii, [iv.PII_MATCHER])
+    case("the committed brain settings carry no hooks", "hooks" in brain, False)
+    case("the committed settings ask before editing the local settings",
+         all(r in brain["permissions"]["ask"]
+             for r in ("Edit(/.claude/settings.local.json)", "Write(/.claude/settings.local.json)")), True)
+
+
+# ---- the brain's own gate hooks ----------------------------------------------
+# The installer writes them into the gitignored .claude/settings.local.json by absolute
+# path. Every case below points iv.ROOT at a temporary brain whose path holds a space.
+
+def brain_hook_cases():
+    # Unstubbed: the real vault_hook_runtimes must see the brain gates, which are no longer
+    # in the committed settings.json.
+    case("vault hook runtimes cover the brain gates", "python" in iv.vault_hook_runtimes(), True)
+    e = iv.brain_hook_entries("C:/Users/A B/brain")
+    case("brain hooks: four events-groups", sorted((k, len(v)) for k, v in e.items()),
+         [("PreToolUse", 2), ("SessionStart", 1), ("Stop", 1)])
+    case("brain hooks: PII command is quoted absolute", e["PreToolUse"][0]["hooks"][0]["command"],
+         'python "C:/Users/A B/brain/scripts/pii_gate.py"')
+    case("brain hooks: PII matcher is the installer's", e["PreToolUse"][0]["matcher"], iv.PII_MATCHER)
+    case("brain hooks: edit gate matcher", e["PreToolUse"][1]["matcher"], iv.EDIT_MATCHER)
+    case("brain hooks: Stop runs review_output --gate", e["Stop"][0]["hooks"][0]["command"],
+         'python "C:/Users/A B/brain/scripts/review_output.py" --gate')
+    case("brain hooks: every command is valid JSON round-trip", json.loads(json.dumps(e)) == e, True)
+
+    saved_root = iv.ROOT
+
+    # No local file: the step is not done, the apply writes the file, a second apply changes nothing.
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        iv.ROOT = t / "my brain"
+        try:
+            case("brain_hooks_missing: not ok", iv.step_brain_hooks()[0], False)
+            ok, _ = iv.apply_brain_hooks()
+            case("brain_hooks_missing: apply ok", ok, True)
+            case("brain_hooks_missing: step ok after", iv.step_brain_hooks()[0], True)
+            case("brain_hooks_missing: second apply is a no-op", iv.apply_brain_hooks(),
+                 (True, "already wired"))
+        finally:
+            iv.ROOT = saved_root
+
+    # A local file with the wiki directory and a foreign hook: both are kept.
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        iv.ROOT = t / "my brain"
+        try:
+            (t / "my brain" / ".claude").mkdir(parents=True)
+            path = t / "my brain" / ".claude" / "settings.local.json"
+            path.write_text(json.dumps({"permissions": {"additionalDirectories": ["/w"]},
+                                        "hooks": {"PostToolUse": [{"hooks": [
+                                            {"type": "command", "command": "echo keep"}]}]}}),
+                            encoding="utf-8")
+            iv.apply_brain_hooks()
+            data = json.loads(path.read_text(encoding="utf-8"))
+            case("brain_hooks_keeps: the wiki directory is kept",
+                 data["permissions"]["additionalDirectories"], ["/w"])
+            case("brain_hooks_keeps: a foreign hook is kept",
+                 data["hooks"]["PostToolUse"][0]["hooks"][0]["command"], "echo keep")
+        finally:
+            iv.ROOT = saved_root
+
+    # Malformed JSON: the step is not done, the apply fails and the file is untouched.
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        iv.ROOT = t / "my brain"
+        try:
+            (t / "my brain" / ".claude").mkdir(parents=True)
+            path = t / "my brain" / ".claude" / "settings.local.json"
+            path.write_text("{not json", encoding="utf-8")
+            case("brain_hooks_bad_json: not ok", iv.step_brain_hooks()[0], False)
+            case("brain_hooks_bad_json: apply fails, file untouched",
+                 (iv.apply_brain_hooks()[0], path.read_text(encoding="utf-8")), (False, "{not json"))
+        finally:
+            iv.ROOT = saved_root
 
 
 # ---- client repos ------------------------------------------------------------
@@ -874,6 +945,191 @@ def client_repo_cases():
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = value
+
+
+# ---- the Jev hook, the global rules and the session files ---------------------
+# Every case runs against a temporary config directory and a temporary brain.
+# The real ~/.claude and the real brain's _local/ are never touched.
+
+UNMARKED_HOME = (
+    "## Mine\n\nkeep me\n\n"
+    "## Guardrails — apply every session\n\nold guard text\n\n"
+    "## How Claude responds\n\nold response text\n\n"
+    "## Build flow — only for a request you identify as a Build\n\nold build text\n"
+)
+
+OLD_JEV_SETTINGS = {"hooks": {
+    "UserPromptSubmit": [{"hooks": [
+        {"type": "command", "timeout": 20,
+         "command": '/usr/bin/python3 "$HOME/.claude/scripts/jev_route.py" --hook'},
+        {"type": "command", "command": "echo other"}]}],
+    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre"}]}],
+}}
+
+
+def prompt_commands(claude):
+    data = json.loads((claude / "settings.json").read_text(encoding="utf-8"))
+    return [h["command"] for g in data["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+
+
+def wiring_brain(base):
+    brain = base / "brain"
+    (brain / "_local").mkdir(parents=True)
+    (brain / "_ai").mkdir()
+    (brain / "scripts").mkdir()
+    shutil.copy(ROOT / "_ai" / "rules.md", brain / "_ai" / "rules.md")
+    (brain / "scripts" / "jev_route.py").write_text("# stub\n", encoding="utf-8")
+    iv.ROOT = brain
+    return brain
+
+
+def installer_wiring_cases():
+    saved_root, saved_env = iv.ROOT, os.environ.get("BRAIN_WIKI")
+    real_symlink = os.symlink
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp).resolve()
+            brain = wiring_brain(base)
+            os.environ["BRAIN_WIKI"] = str(base / "no-such-wiki")
+            target = brain / "scripts" / "jev_route.py"
+            cmd_start = '"' + sys.executable + '"'
+
+            # ---- jev hook ----
+            claude = base / "claude"
+            home(claude)
+            case("jev_hook_missing: not ok with no settings", iv.step_jev_hook()[0], False)
+            home(claude, json.dumps(OLD_JEV_SETTINGS))
+            case("jev_hook_missing: not ok with the old python3 hook", iv.step_jev_hook()[0], False)
+            ok, _ = iv.apply_jev_hook()
+            case("jev_hook_applied: apply ok", ok, True)
+            case("jev_hook_applied: step ok after apply", iv.step_jev_hook()[0], True)
+            cmds = prompt_commands(claude)
+            jev = [c for c in cmds if c.endswith('jev_route.py" --hook')]
+            case("jev_hook_applied: one jev command", len(jev), 1)
+            case("jev_hook_applied: command starts with the quoted interpreter",
+                 jev[0].startswith(cmd_start), True)
+            link = claude / "scripts" / "jev_route.py"
+            case("jev_hook_applied: the script resolves to the brain copy",
+                 link.resolve() == target.resolve(), True)
+            case("jev_hook_replaces_usr_bin: the old unquoted python3 entry is gone",
+                 '/usr/bin/python3 "$HOME/.claude/scripts/jev_route.py" --hook' in cmds, False)
+            case("jev_hook_replaces_usr_bin: the other hook is kept", "echo other" in cmds, True)
+            data = json.loads((claude / "settings.json").read_text(encoding="utf-8"))
+            case("jev_hook_replaces_usr_bin: timeout kept on the jev hook",
+                 data["hooks"]["UserPromptSubmit"][0]["hooks"][0].get("timeout"), 20)
+            case("jev_hook_replaces_usr_bin: PreToolUse kept",
+                 data["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "echo pre")
+            case("jev_hook_replaces_usr_bin: a backup of the old settings exists",
+                 len(list(claude.glob("settings.json.bak-*"))), 1)
+
+            home(claude, "{not json")
+            case("jev_hook: malformed settings are not ok", iv.step_jev_hook()[0], False)
+            ok, _ = iv.apply_jev_hook()
+            case("jev_hook: malformed settings are left untouched and fail",
+                 (ok, (claude / "settings.json").read_text(encoding="utf-8")), (False, "{not json"))
+
+            claude2 = base / "claude2"
+            home(claude2, json.dumps(OLD_JEV_SETTINGS))
+
+            def no_symlinks(src, dst, *args, **kwargs):
+                raise OSError("no symlink rights")
+            os.symlink = no_symlinks
+            try:
+                ok, _ = iv.apply_jev_hook()
+            finally:
+                os.symlink = real_symlink
+            launcher = claude2 / "scripts" / "jev_route.py"
+            case("jev_launcher_fallback: apply ok", ok, True)
+            case("jev_launcher_fallback: a launcher file, not a link",
+                 launcher.is_file() and not launcher.is_symlink(), True)
+            case("jev_launcher_fallback: the launcher runs the brain script with runpy",
+                 "runpy" in launcher.read_text(encoding="utf-8"), True)
+            case("jev_launcher_fallback: step ok with the launcher", iv.step_jev_hook()[0], True)
+
+            # ---- global rules ----
+            claude3 = base / "claude3"
+            claude3.mkdir()
+            (claude3 / "CLAUDE.md").write_text(UNMARKED_HOME, encoding="utf-8")
+            (brain / "CLAUDE.md").write_text("brain text\n", encoding="utf-8")
+            home(claude3)
+            case("global_rules_adopts_unmarked: not ok before apply",
+                 iv.step_global_rules()[0], False)
+            ok, _ = iv.apply_global_rules()
+            text = (claude3 / "CLAUDE.md").read_text(encoding="utf-8")
+            case("global_rules_adopts_unmarked: apply ok", ok, True)
+            case("global_rules_adopts_unmarked: the Mine section is still there",
+                 "## Mine\n\nkeep me" in text, True)
+            case("global_rules_adopts_unmarked: the old bodies are gone",
+                 any(s in text for s in ("old guard text", "old response text", "old build text")),
+                 False)
+            case("global_rules_adopts_unmarked: the file ends with the build-flow marker",
+                 text.rstrip("\n").endswith("<!-- block:build-flow-global:end -->"), True)
+            case("global_rules_adopts_unmarked: all three blocks are marked",
+                 all(f"<!-- block:{n}:start -->" in text and f"<!-- block:{n}:end -->" in text
+                     for n in ("global-guardrails", "response-contract", "build-flow-global")), True)
+            case("global_rules_adopts_unmarked: step ok after apply",
+                 iv.step_global_rules()[0], True)
+            case("global_rules: the brain CLAUDE.md is never written",
+                 (brain / "CLAUDE.md").read_text(encoding="utf-8"), "brain text\n")
+
+            claude4 = base / "claude4"
+            claude4.mkdir()
+            home(claude4)
+            case("global_rules_missing_file: not ok before apply",
+                 iv.step_global_rules()[0], False)
+            ok, _ = iv.apply_global_rules()
+            case("global_rules_missing_file: apply ok", ok, True)
+            case("global_rules_missing_file: the file now exists",
+                 (claude4 / "CLAUDE.md").is_file(), True)
+            text = (claude4 / "CLAUDE.md").read_text(encoding="utf-8") \
+                if (claude4 / "CLAUDE.md").is_file() else ""
+            case("global_rules_missing_file: all three blocks are marked",
+                 all(f"<!-- block:{n}:start -->" in text and f"<!-- block:{n}:end -->" in text
+                     for n in ("global-guardrails", "response-contract", "build-flow-global")), True)
+            case("global_rules_missing_file: step ok after apply",
+                 iv.step_global_rules()[0], True)
+
+            claude5 = base / "claude5"
+            claude5.mkdir()
+            (claude5 / "CLAUDE.md").write_text("# notes\n", encoding="utf-8")
+            home(claude5)
+            ok, _ = iv.apply_global_rules()
+            case("global_rules_no_headings: apply fails", ok, False)
+            case("global_rules_no_headings: the file is untouched",
+                 (claude5 / "CLAUDE.md").read_text(encoding="utf-8"), "# notes\n")
+            case("global_rules_no_headings: step not ok", iv.step_global_rules()[0], False)
+
+            home(base / "claude6")
+            ok, _ = iv.apply_global_rules()
+            case("global_rules_no_claude_dir: apply fails", ok, False)
+            case("global_rules_no_claude_dir: no folder made",
+                 (base / "claude6").exists(), False)
+
+            # ---- session files ----
+            session = brain / "_local" / "CLAUDE.md"
+            case("session_files_created: not ok before apply", iv.step_session_files()[0], False)
+            ok, _ = iv.apply_session_files()
+            case("session_files_created: apply ok", ok, True)
+            case("session_files_created: the one comment line",
+                 session.read_text(encoding="utf-8"),
+                 "<!-- machine-local additions; may stay empty -->\n")
+            case("session_files_created: step ok after apply", iv.step_session_files()[0], True)
+
+            # ---- ordering and restart ----
+            labels = [s[0] for s in iv.STEPS]
+            case("the three wiring steps follow hook runtimes",
+                 labels[labels.index("hook runtimes") + 1:],
+                 ["brain hooks", "jev hook", "global rules", "session files"])
+            case("the three wiring steps need a restart",
+                 all(x in iv.NEEDS_RESTART for x in ("jev hook", "global rules", "session files")),
+                 True)
+    finally:
+        os.symlink = real_symlink
+        iv.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("BRAIN_WIKI", None)
+        else:
+            os.environ["BRAIN_WIKI"] = saved_env
 
 
 def main():
@@ -1516,8 +1772,10 @@ def main():
     verify_cases()
     jev_cases()
     matcher_cases()
+    brain_hook_cases()
     client_repo_cases()
     nightly_cases()
+    installer_wiring_cases()
     os.environ.pop("VAULT_CLAUDE_HOME", None)
     total = RAN[0]
     print("\ntest_install_vault: " + str(total - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")

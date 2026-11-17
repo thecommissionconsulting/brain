@@ -27,6 +27,16 @@ repository:
                     PII gate does nothing. Reported, never fixed here:
                     installing it or removing the plugin is a person's call. uv,
                     PyYAML and tzdata are reported too, without failing --check
+  brain hooks       the brain's four gate hooks (session, PII, edit, review) are
+                    written into the gitignored .claude/settings.local.json by
+                    absolute path, so they load from any session folder
+  jev hook          the global UserPromptSubmit hook runs jev_route.py under the
+                    Python that ran this script, not /usr/bin/python3, and the
+                    script is linked (or, without symlink rights, a launcher is
+                    written) into the .claude folder
+  global rules      the .claude/CLAUDE.md rule blocks match _ai/rules.md. A file
+                    with no markers gets them under its old headings
+  session files     _local/CLAUDE.md exists, so the session gate has a file to read
 
 Each was a separate manual step in `_ai/setup.md`, each easy to skip, and
 skipping any of them fails quietly: the skills are installed but never fire, or
@@ -67,6 +77,7 @@ import time
 # wiki_root sits beside this file. Put the folder on the path before importing it,
 # so this works however the script was started.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import sync_rules  # noqa: E402
 import wiki_root  # noqa: E402
 import wiki_edit_gate  # noqa: E402
 
@@ -1083,13 +1094,12 @@ def hook_runtimes(plugin_root):
 
 
 def vault_hook_runtimes():
-    """The runtimes this vault's own hooks in .claude/settings.json start."""
-    try:
-        hooks = json.loads((ROOT / ".claude" / "settings.json")
-                           .read_text(encoding="utf-8")).get("hooks") or {}
-    except (OSError, ValueError, AttributeError):
-        return set()
-    return runtimes_in(hooks)
+    """The runtimes the brain's gate hooks start, from the installer's own definition.
+
+    Uses brain_hook_entries, not the local settings file, so the check holds whether or
+    not the local file is wired yet.
+    """
+    return runtimes_in(brain_hook_entries(ROOT.as_posix()))
 
 
 def runtimes_in(hooks):
@@ -1500,6 +1510,59 @@ def brain_local_merged(wiki, existing, old):
     return add_unique(out, "permissions", "deny", wiki_deny_rules(wiki))
 
 
+def brain_hook_entries(brain):
+    """The gate hooks this brain owns in its gitignored settings.local.json, by event.
+
+    Written by absolute path, quoted, the way wiki_hook_entries wires the wiki, so the
+    gates load from any session folder. The committed settings.json carries none: a
+    relative path there blocked every tool when the session started outside the brain.
+    """
+    return {
+        "SessionStart": [{"hooks": [{"type": "command", "timeout": 30,
+                                     "statusMessage": "Checking vault rule gates...",
+                                     "command": f'python "{brain}/scripts/session_gate.py"'}]}],
+        "Stop": [{"hooks": [{"type": "command", "timeout": 15,
+                             "statusMessage": "Checking raw/output for untriaged artifacts...",
+                             "command": f'python "{brain}/scripts/review_output.py" --gate'}]}],
+        "PreToolUse": [
+            {"matcher": PII_MATCHER,
+             "hooks": [{"type": "command", "timeout": 10,
+                        "statusMessage": "Checking the PII gate...",
+                        "command": f'python "{brain}/scripts/pii_gate.py"'}]},
+            {"matcher": EDIT_MATCHER,
+             "hooks": [{"type": "command", "timeout": 5,
+                        "command": f'python "{brain}/scripts/wiki_edit_gate.py"'}]},
+        ],
+    }
+
+
+def step_brain_hooks():
+    path = brain_local()
+    try:
+        existing = load_json(path)
+    except ValueError as err:
+        return False, (str(path) + " is not valid JSON (" + str(err) + ")",
+                       "REPORT IT, and change nothing")
+    done = merge_hooks(existing, brain_hook_entries(ROOT.as_posix())) == existing
+    return done, (
+        "session, PII, edit and review gates wired by absolute path" if done
+        else "gates missing or stale",
+        "write the four gate hooks into " + str(path))
+
+
+def apply_brain_hooks():
+    path = brain_local()
+    try:
+        existing = load_json(path)
+    except ValueError as err:
+        return False, str(path) + " is not valid JSON (" + str(err) + "). Left untouched."
+    merged = merge_hooks(existing, brain_hook_entries(ROOT.as_posix()))
+    if merged == existing:
+        return True, "already wired"
+    backup = write_json(path, merged)
+    return True, "wired" + (", backup at " + backup if backup else "")
+
+
 def step_wiki_pointer(wiki, old):
     have = configured_wiki()
     return have == wiki.as_posix(), (
@@ -1712,6 +1775,250 @@ def wiki_rows(wiki):
     return rows
 
 
+# ---- the Jev hook, the global rules and the session files -----------------------
+# Three steps that wire the vault into the global .claude folder and this brain's
+# _local/. Each path is built from claude_home(), so a test points them at a temp dir.
+
+JEV_HOOK_TAIL = 'jev_route.py" --hook'
+JEV_LAUNCHER_MARK = "runpy.run_path"
+SESSION_LINE = "<!-- machine-local additions; may stay empty -->"
+# The three headings of the global CLAUDE.md that carry a rule block, and the block each holds.
+RULE_HEADINGS = (
+    ("## Guardrails", "global-guardrails"),
+    ("## How Claude responds", "response-contract"),
+    ("## Build flow", "build-flow-global"),
+)
+
+
+def jev_script():
+    return claude_home() / "scripts" / "jev_route.py"
+
+
+def jev_command():
+    return '"' + sys.executable + '" "' + str(jev_script()) + '" --hook'
+
+
+def read_text_raw(path):
+    """The file's text with its line endings kept as they are."""
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def jev_link_ok():
+    """True when the .claude copy of jev_route.py runs this vault's script: a symlink to it, or the launcher."""
+    link, target = jev_script(), ROOT / "scripts" / "jev_route.py"
+    if not (link.exists() or link.is_symlink()):
+        return False
+    try:
+        if link.resolve() == target.resolve():
+            return True
+    except OSError:
+        return False
+    if link.is_symlink() or not link.is_file():
+        return False
+    text = read_text_raw(link)
+    return JEV_LAUNCHER_MARK in text and target.as_posix() in text
+
+
+def jev_hook_entries(settings):
+    """Every UserPromptSubmit command that runs jev_route.py with --hook, as (group, hook) pairs."""
+    found = []
+    for group in (settings.get("hooks") or {}).get("UserPromptSubmit") or []:
+        for hook in group.get("hooks") or []:
+            if str(hook.get("command", "")).endswith(JEV_HOOK_TAIL):
+                found.append((group, hook))
+    return found
+
+
+def jev_hook_ok(settings):
+    entries = jev_hook_entries(settings)
+    return len(entries) == 1 and str(entries[0][1].get("command", "")).startswith(
+        '"' + sys.executable + '"')
+
+
+def with_jev_hook(settings):
+    """Settings with exactly one jev hook, which runs this Python. The first one keeps its
+    other fields (type, timeout); the rest go. Every other hook stays where it was."""
+    out = dict(settings)
+    hooks = dict(out.get("hooks") or {})
+    groups, placed = [], False
+    for group in hooks.get("UserPromptSubmit") or []:
+        inner = []
+        for hook in group.get("hooks") or []:
+            if str(hook.get("command", "")).endswith(JEV_HOOK_TAIL):
+                if not placed:
+                    inner.append(dict(hook, command=jev_command()))
+                    placed = True
+            else:
+                inner.append(hook)
+        if inner or not group.get("hooks"):
+            groups.append(dict(group, hooks=inner) if group.get("hooks") else group)
+    if not placed:
+        groups.append({"hooks": [{"type": "command", "command": jev_command()}]})
+    hooks["UserPromptSubmit"] = groups
+    out["hooks"] = hooks
+    return out
+
+
+def jev_launcher_text(target):
+    return ("# Written by install_vault.py: this machine could not make a symlink to the vault's script.\n"
+            "import runpy\n"
+            'runpy.run_path("' + target.as_posix() + '", run_name="__main__")\n')
+
+
+def link_jev_script():
+    """Link the .claude copy of jev_route.py to the vault's, or write the launcher. Returns a note or raises."""
+    link, target = jev_script(), ROOT / "scripts" / "jev_route.py"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.is_file():
+        if not link.is_symlink() and JEV_LAUNCHER_MARK not in read_text_raw(link):
+            raise ValueError(str(link) + " exists and is not this vault's script. Left untouched.")
+        link.unlink()
+    try:
+        os.symlink(target, link)
+        return "linked"
+    except OSError:
+        link.write_text(jev_launcher_text(target), encoding="utf-8", newline="\n")
+        return "launcher written"
+
+
+def step_jev_hook():
+    path = settings_file()
+    try:
+        settings = read_settings(path)
+    except ValueError as err:
+        return False, (str(path) + " is not valid JSON (" + str(err) + ")",
+                       "REPORT IT, and change nothing")
+    link_ok, hook_ok = jev_link_ok(), jev_hook_ok(settings)
+    if link_ok and hook_ok:
+        return True, ("jev_route.py is linked and the hook runs this Python", "nothing to do")
+    gaps = []
+    if not link_ok:
+        gaps.append("scripts/jev_route.py is not linked to this vault")
+    if not hook_ok:
+        gaps.append("the UserPromptSubmit jev hook does not run this Python")
+    return False, (", ".join(gaps), "link jev_route.py into " + str(claude_home() / "scripts") +
+                   " and point the hook at " + sys.executable)
+
+
+def apply_jev_hook():
+    path = settings_file()
+    try:
+        settings = read_settings(path)
+    except ValueError as err:
+        return False, str(path) + " is not valid JSON (" + str(err) + "). Left untouched."
+    notes = []
+    if not jev_link_ok():
+        try:
+            notes.append(link_jev_script())
+        except ValueError as err:
+            return False, str(err)
+    if not jev_hook_ok(settings):
+        write_json(path, with_jev_hook(settings))
+        notes.append("hook now runs " + sys.executable)
+    return True, ", ".join(notes) if notes else "nothing to do"
+
+
+def rules_source():
+    """The block bodies in _ai/rules.md, or {} when that file is absent."""
+    path = ROOT / sync_rules.RULES
+    return sync_rules.blocks(read_text_raw(path)) if path.is_file() else {}
+
+
+def home_rules_problems():
+    problems, _ = sync_rules.check(ROOT, find_wiki(), claude_home())
+    return [p for p in problems if "home:" in p]
+
+
+def adopt_rules(text, source):
+    """Put each rule block's markers under its old heading, keeping every other line.
+
+    Returns (new text, "") or (None, why). A block that already has its markers is left
+    alone, and a section that is not there is an error, not a guess.
+    """
+    nl = "\r\n" if "\r\n" in text else "\n"
+    found = sync_rules.blocks(text)
+    lines = text.split(nl)
+    for heading, name in RULE_HEADINGS:
+        if name in found:
+            continue
+        if name not in source:
+            return None, "the rules file has no block " + name
+        idx = next((i for i, line in enumerate(lines) if line.startswith(heading)), None)
+        if idx is None:
+            return None, "no heading " + heading + " in the home CLAUDE.md"
+        end = next((i for i in range(idx + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+        marked = ["<!-- block:" + name + ":start -->"] + source[name].split("\n") + \
+                 ["<!-- block:" + name + ":end -->"]
+        lines[idx + 1:end] = [""] + marked + [""]
+    return nl.join(lines), ""
+
+
+def step_global_rules():
+    path = claude_home() / "CLAUDE.md"
+    if not path.is_file():
+        return False, ("no home CLAUDE.md at " + str(path),
+                       "create it with the rule blocks from _ai/rules.md")
+    problems = home_rules_problems()
+    if not problems:
+        return True, ("the home CLAUDE.md rule blocks match _ai/rules.md", "nothing to do")
+    return False, ("; ".join(problems), "write the rule blocks into " + str(path))
+
+
+def apply_global_rules():
+    home = claude_home()
+    if not home.is_dir():
+        return False, "no " + str(home) + " folder. Start Claude Code once, then run this again."
+    path = home / "CLAUDE.md"
+    notes = []
+    if not path.is_file():
+        full = ("## Guardrails — apply every session",
+                "## How Claude responds",
+                "## Build flow — only for a request you identify as a Build")
+        new, why = adopt_rules("\n\n".join(full) + "\n", rules_source())
+        if new is None:
+            return False, why + ". Nothing created."
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(new)
+        notes.append("created " + str(path))
+    if path.is_file():
+        text = read_text_raw(path)
+        found = sync_rules.blocks(text)
+        if any(name not in found for _, name in RULE_HEADINGS):
+            new, why = adopt_rules(text, rules_source())
+            if new is None:
+                return False, why + ". Left untouched."
+            backup = str(path) + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
+            shutil.copy2(path, backup)
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(new)
+            notes.append("markers added, backup at " + backup)
+    sync_rules.write(ROOT, find_wiki(), claude_home(), wheres=("home",))
+    left = home_rules_problems()
+    if left:
+        return False, "; ".join(left) + ". Left as it is."
+    return True, "rule blocks written" + ("; " + "; ".join(notes) if notes else "")
+
+
+def session_file():
+    return ROOT / "_local" / "CLAUDE.md"
+
+
+def step_session_files():
+    if session_file().exists():
+        return True, ("_local/CLAUDE.md exists", "nothing to do")
+    return False, ("_local/CLAUDE.md is missing", "create it with one comment line")
+
+
+def apply_session_files():
+    path = session_file()
+    if path.exists():
+        return True, "nothing to do"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(SESSION_LINE + "\n", encoding="utf-8", newline="\n")
+    return True, str(path) + " created"
+
+
 # Order matters: plugins before the retired ones are removed, so a replacement
 # is already there when the plugin it replaces goes.
 #
@@ -1727,6 +2034,10 @@ STEPS = (
     ("auto-update", step_auto_update, apply_auto_update),
     ("prompt gate", step_gate, apply_gate),
     ("hook runtimes", step_runtimes, apply_runtimes),
+    ("brain hooks", step_brain_hooks, apply_brain_hooks),
+    ("jev hook", step_jev_hook, apply_jev_hook),
+    ("global rules", step_global_rules, apply_global_rules),
+    ("session files", step_session_files, apply_session_files),
 )
 # Not a step for now: ("local bindings", step_bindings, apply_bindings). The binding
 # files and Obsidian are being set up by hand as they are added, so
@@ -1738,7 +2049,7 @@ FORCED = ("skill copies",)
 # The steps after which Claude Code must restart to load what changed.
 NEEDS_RESTART = ("plugins", "retired plugins", "plugin updates", "skill copies",
                  "auto-update",
-                 "prompt gate")
+                 "prompt gate", "brain hooks", "jev hook", "global rules", "session files")
 
 
 def manual():

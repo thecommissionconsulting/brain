@@ -1,51 +1,28 @@
 {
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python scripts/session_gate.py",
-            "timeout": 30,
-            "statusMessage": "Checking vault rule gates..."
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python scripts/review_output.py --gate",
-            "timeout": 15,
-            "statusMessage": "Checking raw/output for untriaged artifacts..."
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Read|Grep|Glob|Bash|Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python scripts/pii_gate.py",
-            "timeout": 10,
-            "statusMessage": "Checking the PII gate..."
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python scripts/wiki_edit_gate.py",
-            "timeout": 5
-          }
-        ]
-      }
+  "permissions": {
+    "ask": [
+      "Edit(/_ai/rules.md)",
+      "Write(/_ai/rules.md)",
+      "Edit(/scripts/hooks_guard.py)",
+      "Write(/scripts/hooks_guard.py)",
+      "Edit(/scripts/pii_gate.py)",
+      "Write(/scripts/pii_gate.py)",
+      "Edit(/scripts/patterns.py)",
+      "Write(/scripts/patterns.py)",
+      "Edit(/scripts/jev_client.py)",
+      "Write(/scripts/jev_client.py)",
+      "Edit(/scripts/check_gates.py)",
+      "Write(/scripts/check_gates.py)",
+      "Edit(/scripts/sync_rules.py)",
+      "Write(/scripts/sync_rules.py)",
+      "Edit(/scripts/wiki_edit_gate.py)",
+      "Write(/scripts/wiki_edit_gate.py)",
+      "Edit(/.claude/settings.json)",
+      "Write(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Write(/.claude/settings.local.json)",
+      "Edit(/.githooks/**)",
+      "Write(/.githooks/**)"
     ]
   },
   "enabledPlugins": {

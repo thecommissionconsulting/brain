@@ -4,6 +4,7 @@ Each case builds a small brain in the temp directory (a rules file and gate file
 checks the result. The last case reads the real _ai/rules.md of this checkout.
 """
 import importlib.util
+import json
 import pathlib
 import subprocess
 import sys
@@ -26,8 +27,8 @@ def case(name, got, want):
           "want " + str(want)[:40].ljust(40) + " got " + str(got)[:40])
 
 
-def reg(rule_id, level, gate):
-    return "| %s | Test | A rule | §Test | %s | %s | ok |" % (rule_id, gate, level)
+def reg(rule_id, level, gate, status="ok"):
+    return "| %s | Test | A rule | §Test | %s | %s | %s |" % (rule_id, gate, level, status)
 
 
 def make_brain(base, rows, files):
@@ -129,9 +130,93 @@ def main():
         case("the CLI prints ::error:: lines", "::error::R-106" in proc.stdout, True)
         case("the CLI prints a summary line", "check_gates: 8 HARD rule(s)" in proc.stdout, True)
 
+    print("level counts")
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [
+            reg("R-201", "**HARD**", "`a.py`"),
+            reg("R-202", "**HARD**", "`b.py`"),
+            reg("R-203", "WARN", "by hand"),
+            reg("R-204", "MANUAL", "—"),
+            reg("R-205", "**HARD**", "`c.py`", status="retired"),
+        ]
+        brain = make_brain(tmp, rows, {})
+        case("counts_basic: retired rows are counted apart",
+             cg.level_counts(brain),
+             {"HARD": 2, "WARN": 1, "MANUAL": 1, "retired": 1})
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = make_brain(tmp, [reg("R-206", "**HARD** (local)", "`d.py`")], {})
+        case("counts_local_suffix: '**HARD** (local)' counts as HARD",
+             cg.level_counts(brain)["HARD"], 1)
+
+    print("ask rules for guarded files")
+
+    def ask_brain(base, entries):
+        """A temp brain whose .claude/settings.json asks before the given entries."""
+        brain = make_brain(base, [], {})
+        (brain / ".claude").mkdir(parents=True, exist_ok=True)
+        body = json.dumps({"permissions": {"ask": entries}})
+        (brain / ".claude" / "settings.json").write_text(body, encoding="utf-8")
+        return brain
+
+    def full_ask(overrides=None):
+        """Edit and Write entries for every guarded path, in the anchored / form."""
+        overrides = overrides or {}
+        entries = []
+        for path in cg.GUARDED:
+            for tool in ("Edit", "Write"):
+                entries.append(overrides.get((tool, path), tool + "(/" + path + ")"))
+        return entries
+
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = ask_brain(tmp, full_ask())
+        case("ask_complete: all guarded paths have Edit and Write", cg.missing_ask_rules(brain), [])
+    with tempfile.TemporaryDirectory() as tmp:
+        entries = [e for e in full_ask() if "scripts/pii_gate.py" not in e]
+        brain = ask_brain(tmp, entries)
+        case("ask_missing: a path with no entries is reported",
+             cg.missing_ask_rules(brain), ["scripts/pii_gate.py"])
+    with tempfile.TemporaryDirectory() as tmp:
+        entries = [e for e in full_ask() if e != "Write(/scripts/pii_gate.py)"]
+        brain = ask_brain(tmp, entries)
+        case("ask_missing: Edit without Write is still reported",
+             cg.missing_ask_rules(brain), ["scripts/pii_gate.py"])
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = ask_brain(tmp, full_ask({("Edit", "scripts/pii_gate.py"): "Edit(./scripts/pii_gate.py)",
+                                         ("Write", "scripts/pii_gate.py"): "Write(./scripts/pii_gate.py)"}))
+        case("ask_anchored: ./ form counts as present", cg.missing_ask_rules(brain), [])
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = ask_brain(tmp, full_ask({("Edit", "scripts/pii_gate.py"): "Edit(/scripts/pii_gate.py)",
+                                         ("Write", "scripts/pii_gate.py"): "Write(./scripts/pii_gate.py)"}))
+        case("ask_anchored: mixed / and ./ forms count as present", cg.missing_ask_rules(brain), [])
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = ask_brain(tmp, full_ask({("Edit", ".githooks/**"): "Edit(/.githooks/**)"}))
+        case("ask_anchored: a glob path counts as present", cg.missing_ask_rules(brain), [])
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = pathlib.Path(tmp)
+        case("ask_no_file: no settings file reports every guarded path",
+             cg.missing_ask_rules(brain), list(cg.GUARDED))
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = pathlib.Path(tmp)
+        (brain / ".claude").mkdir()
+        (brain / ".claude" / "settings.json").write_text("{not json", encoding="utf-8")
+        case("ask_bad_json: an unreadable settings file reports every guarded path",
+             cg.missing_ask_rules(brain), list(cg.GUARDED))
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = ask_brain(tmp, full_ask())
+        proc = run_cli(brain)
+        case("ask_warning: the CLI prints no ask warning when complete",
+             "::warning::" in proc.stdout and "permissions.ask" in proc.stdout, False)
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = ask_brain(tmp, [e for e in full_ask() if "scripts/pii_gate.py" not in e])
+        proc = run_cli(brain)
+        case("ask_warning: the CLI prints a warning for a missing path",
+             "::warning::scripts/pii_gate.py" in proc.stdout, True)
+        case("ask_warning: a missing ask rule does not fail the run", proc.returncode, 0)
+
     print("this checkout")
     errors, _ = cg.check(ROOT)
     case("the real brain has 0 gate errors", errors, [])
+    case("the real brain has no missing ask rules", cg.missing_ask_rules(ROOT), [])
 
     print(f"\ntest_check_gates: {RAN[0] - FAILS[0]} passed, {FAILS[0]} failed.")
     return 1 if FAILS[0] else 0

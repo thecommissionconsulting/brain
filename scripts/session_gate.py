@@ -1,19 +1,26 @@
 """Session-start gate: report which vault rules are red, right now.
 
 `_ai/rules.md` says what the rules are; this says which are currently holding. It runs
-on SessionStart (see `.claude/settings.json`) so a session opens knowing the live state
+on SessionStart (see `.claude/settings.local.json`, written by install_vault.py by absolute path) so a session opens knowing the live state
 instead of discovering it in CI after a push.
 
 Only the sub-second gates run here — `check_maps.py` (~0.8s, run from the wiki),
-`check_schema_sync.py` (~0.5s) and `check_gates.py` (run from the brain) — plus the wiki's `index.md` byte
-budget, read straight from `check_links.py` so the number is never duplicated. With no
-wiki on this machine, the maps and budget lines are replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s,
+`check_schema_sync.py` (~0.5s), `check_gates.py` and `sync_rules.py --check` (run from the
+brain) — plus the wiki's `index.md` byte budget, read straight from `check_links.py` so the
+number is never duplicated. With no wiki on this machine, the maps and budget lines are
+replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s,
 `check_links.py` 2.1s) stay in CI; they are too slow to pay for on every session.
+
+It also reports the median time of today's and yesterday's Jev calls from the decision
+log (R-67), and marks it OVER above 4 s.
 
 Always exits 0. This informs, it never blocks a session.
 """
 import ast
+import datetime
+import json
 import pathlib
+import statistics
 import subprocess
 import sys
 
@@ -22,6 +29,8 @@ import wiki_root  # noqa: E402
 
 BRAIN = wiki_root.BRAIN
 SCRIPTS = BRAIN / "scripts"
+JEV_LOG = BRAIN / "_local" / "jev-log"
+JEV_LIMIT_MS = 4000  # R-67: a per-prompt hook finishes within 4 s in total
 
 
 def budget(wiki):
@@ -38,19 +47,53 @@ def budget(wiki):
     return len(index.read_bytes()), limit
 
 
-def gate(label, script, cwd, parts, red):
+def jev_median(log_dir):
+    """Median ms over the Jev decision records for today and yesterday (UTC), or None.
+
+    Reads the files jev_client writes, named YYYY-MM-DD.jsonl; skips lines with no ms.
+    """
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    names = {(today - datetime.timedelta(days=back)).isoformat() + ".jsonl" for back in (0, 1)}
+    times = []
+    for name in names:
+        path = pathlib.Path(log_dir) / name
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                ms = json.loads(line).get("ms")
+            except (ValueError, AttributeError):
+                continue
+            if isinstance(ms, int) and not isinstance(ms, bool):
+                times.append(ms)
+    if not times:
+        return None
+    return int(statistics.median(times))
+
+
+def jev_part(ms):
+    """The session-line part for a median, or None when there is no median."""
+    if ms is None:
+        return None
+    if ms > JEV_LIMIT_MS:
+        return f"jev OVER {ms} ms (R-67)"
+    return f"jev {ms} ms"
+
+
+def gate(label, script, cwd, parts, red, args=()):
     path = SCRIPTS / script
+    tail = "".join(" " + arg for arg in args)
     if not path.exists():
         parts.append(f"{label} MISSING")
-        red.append((label, f"python \"{path.as_posix()}\""))
+        red.append((label, f"python \"{path.as_posix()}\"{tail}"))
         return
-    done = subprocess.run([sys.executable, str(path)], cwd=str(cwd),
+    done = subprocess.run([sys.executable, str(path), *args], cwd=str(cwd),
                           capture_output=True, text=True)
     if done.returncode == 0:
         parts.append(f"{label} ok")
     else:
         parts.append(f"{label} FAIL")
-        red.append((label, f"cd \"{cwd.as_posix()}\" && python \"{path.as_posix()}\""))
+        red.append((label, f"cd \"{cwd.as_posix()}\" && python \"{path.as_posix()}\"{tail}"))
 
 
 def main():
@@ -61,14 +104,20 @@ def main():
                      + "/scripts/install_vault.py --wiki <path>)")
         gate("schema", "check_schema_sync.py", BRAIN, parts, red)
         gate("gates", "check_gates.py", BRAIN, parts, red)
+        gate("sync", "sync_rules.py", BRAIN, parts, red, args=("--check",))
     else:
         gate("maps", "check_maps.py", wiki, parts, red)
         gate("schema", "check_schema_sync.py", BRAIN, parts, red)
         gate("gates", "check_gates.py", BRAIN, parts, red)
+        gate("sync", "sync_rules.py", BRAIN, parts, red, args=("--check",))
         size, limit = budget(wiki)
         if size is not None and limit:
             over = size > limit
             parts.append(f"index.md {size}/{limit}" + (" OVER (R-10)" if over else ""))
+
+    jev = jev_part(jev_median(JEV_LOG))
+    if jev is not None:
+        parts.append(jev)
 
     print("vault gates: " + " | ".join(parts))
     for note in notes:

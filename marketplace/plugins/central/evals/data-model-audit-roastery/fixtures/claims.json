@@ -1,6 +1,0 @@
-[
- {"fact": "fact_sales", "fact_col": "store_key", "dim": "dim_store", "dim_col": "store_key", "where": "model.sql:4"},
- {"fact": "fact_sales", "fact_col": "customer_id", "dim": "dim_customer", "dim_col": "customer_id", "where": "model.sql:5"},
- {"fact": "fact_roasts", "fact_col": "shift_code", "dim": "dim_shift", "dim_col": "shift_code", "dim_grain": ["store_id", "shift_code"], "where": "model.sql:6"},
- {"fact": "fact_sales", "fact_col": "sale_date", "dim": "dim_date", "dim_col": "date_day", "where": "model.sql:7"}
-]

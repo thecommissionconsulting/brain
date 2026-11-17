@@ -159,6 +159,18 @@ def acceptance():
                str(iv.settings_file()) + " is not valid JSON: " + str(err),
                "fix the JSON by hand; the installer will not overwrite it")
 
+    # The three wiring steps, reported by the installer's own state functions so a
+    # row here and a row in `--check` can never disagree.
+    for case, label, step in (
+        ("9", "jev hook", iv.step_jev_hook),
+        ("9a", "global rules", iv.step_global_rules),
+        ("9b", "session files", iv.step_session_files),
+        ("9c", "brain hooks", iv.step_brain_hooks),
+    ):
+        ok, (detail, _) = step()
+        record(case, label + " wired", "PASS" if ok else "FAIL", detail,
+               "python scripts/install_vault.py --yes")
+
     # 8a, the prompt gate tests, left with central on 2026-11-07: no prompt gate
     # ships any more. The PreToolUse PII gate is still tested in the suite below.
 

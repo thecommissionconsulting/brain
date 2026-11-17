@@ -36,7 +36,7 @@ def main():
         print("vault guards disabled. Nothing now stops a commit on main or a secret.")
         return 0
 
-    names = ("pre-commit", "commit-msg", "pre-push", "_python")
+    names = ("pre-commit", "commit-msg", "pre-push", "pre-merge-commit", "_python")
     missing = [h for h in names if not (ROOT / HOOKS / h).exists()]
     if missing:
         print(f"missing hook files: {', '.join(missing)}")

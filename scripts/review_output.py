@@ -7,7 +7,7 @@ lint sees it, no CI run mentions it, and the next session starts with no idea it
 exists. This gate closes that gap by making the decision happen while the person
 who asked for the artifact is still in the conversation.
 
-It runs on Stop (see `.claude/settings.json`), so it fires when a turn ends
+It runs on Stop (see `.claude/settings.local.json`, written by install_vault.py by absolute path), so it fires when a turn ends
 rather than when the session does. Claude Code's SessionEnd hook runs after the
 conversation is over and can neither ask a question nor file a note, so a review
 scheduled there would have no one to review with.
