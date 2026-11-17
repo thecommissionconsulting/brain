@@ -165,6 +165,7 @@ def acceptance():
         ("9", "jev hook", iv.step_jev_hook),
         ("9a", "global rules", iv.step_global_rules),
         ("9b", "session files", iv.step_session_files),
+        ("9c", "brain hooks", iv.step_brain_hooks),
     ):
         ok, (detail, _) = step()
         record(case, label + " wired", "PASS" if ok else "FAIL", detail,

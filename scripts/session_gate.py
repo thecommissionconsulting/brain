@@ -1,7 +1,7 @@
 """Session-start gate: report which vault rules are red, right now.
 
 `_ai/rules.md` says what the rules are; this says which are currently holding. It runs
-on SessionStart (see `.claude/settings.json`) so a session opens knowing the live state
+on SessionStart (see `.claude/settings.local.json`, written by install_vault.py by absolute path) so a session opens knowing the live state
 instead of discovering it in CI after a push.
 
 Only the sub-second gates run here — `check_maps.py` (~0.8s, run from the wiki),

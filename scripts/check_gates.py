@@ -45,6 +45,7 @@ GUARDED = (
     "scripts/sync_rules.py",
     "scripts/wiki_edit_gate.py",
     ".claude/settings.json",
+    ".claude/settings.local.json",
     ".githooks/**",
 )
 ASK_RULE = re.compile(r"^(Edit|Write)\((.*)\)$")

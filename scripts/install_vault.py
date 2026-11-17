@@ -27,6 +27,9 @@ repository:
                     PII gate does nothing. Reported, never fixed here:
                     installing it or removing the plugin is a person's call. uv,
                     PyYAML and tzdata are reported too, without failing --check
+  brain hooks       the brain's four gate hooks (session, PII, edit, review) are
+                    written into the gitignored .claude/settings.local.json by
+                    absolute path, so they load from any session folder
   jev hook          the global UserPromptSubmit hook runs jev_route.py under the
                     Python that ran this script, not /usr/bin/python3, and the
                     script is linked (or, without symlink rights, a launcher is
@@ -1091,7 +1094,7 @@ def hook_runtimes(plugin_root):
 
 
 def vault_hook_runtimes():
-    """The runtimes this vault's own hooks in .claude/settings.json start."""
+    """The runtimes the committed .claude/settings.json hooks start. Gate hooks: see brain_hook_entries."""
     try:
         hooks = json.loads((ROOT / ".claude" / "settings.json")
                            .read_text(encoding="utf-8")).get("hooks") or {}
@@ -1506,6 +1509,59 @@ def brain_local_merged(wiki, existing, old):
     out = drop_items(out, "permissions", "deny", stale_rule)
     out = add_unique(out, "permissions", "additionalDirectories", [wiki.as_posix()])
     return add_unique(out, "permissions", "deny", wiki_deny_rules(wiki))
+
+
+def brain_hook_entries(brain):
+    """The gate hooks this brain owns in its gitignored settings.local.json, by event.
+
+    Written by absolute path, quoted, the way wiki_hook_entries wires the wiki, so the
+    gates load from any session folder. The committed settings.json carries none: a
+    relative path there blocked every tool when the session started outside the brain.
+    """
+    return {
+        "SessionStart": [{"hooks": [{"type": "command", "timeout": 30,
+                                     "statusMessage": "Checking vault rule gates...",
+                                     "command": f'python "{brain}/scripts/session_gate.py"'}]}],
+        "Stop": [{"hooks": [{"type": "command", "timeout": 15,
+                             "statusMessage": "Checking raw/output for untriaged artifacts...",
+                             "command": f'python "{brain}/scripts/review_output.py" --gate'}]}],
+        "PreToolUse": [
+            {"matcher": PII_MATCHER,
+             "hooks": [{"type": "command", "timeout": 10,
+                        "statusMessage": "Checking the PII gate...",
+                        "command": f'python "{brain}/scripts/pii_gate.py"'}]},
+            {"matcher": EDIT_MATCHER,
+             "hooks": [{"type": "command", "timeout": 5,
+                        "command": f'python "{brain}/scripts/wiki_edit_gate.py"'}]},
+        ],
+    }
+
+
+def step_brain_hooks():
+    path = brain_local()
+    try:
+        existing = load_json(path)
+    except ValueError as err:
+        return False, (str(path) + " is not valid JSON (" + str(err) + ")",
+                       "REPORT IT, and change nothing")
+    done = merge_hooks(existing, brain_hook_entries(ROOT.as_posix())) == existing
+    return done, (
+        "session, PII, edit and review gates wired by absolute path" if done
+        else "gates missing or stale",
+        "write the four gate hooks into " + str(path))
+
+
+def apply_brain_hooks():
+    path = brain_local()
+    try:
+        existing = load_json(path)
+    except ValueError as err:
+        return False, str(path) + " is not valid JSON (" + str(err) + "). Left untouched."
+    merged = merge_hooks(existing, brain_hook_entries(ROOT.as_posix()))
+    if merged == existing:
+        return True, "already wired"
+    backup = write_json(path, merged)
+    return True, "wired" + (", backup at " + backup if backup else "")
 
 
 def step_wiki_pointer(wiki, old):
@@ -1979,6 +2035,7 @@ STEPS = (
     ("auto-update", step_auto_update, apply_auto_update),
     ("prompt gate", step_gate, apply_gate),
     ("hook runtimes", step_runtimes, apply_runtimes),
+    ("brain hooks", step_brain_hooks, apply_brain_hooks),
     ("jev hook", step_jev_hook, apply_jev_hook),
     ("global rules", step_global_rules, apply_global_rules),
     ("session files", step_session_files, apply_session_files),
@@ -1993,7 +2050,7 @@ FORCED = ("skill copies",)
 # The steps after which Claude Code must restart to load what changed.
 NEEDS_RESTART = ("plugins", "retired plugins", "plugin updates", "skill copies",
                  "auto-update",
-                 "prompt gate", "jev hook", "global rules", "session files")
+                 "prompt gate", "brain hooks", "jev hook", "global rules", "session files")
 
 
 def manual():

@@ -87,6 +87,8 @@ before pulling may be older than the installer you just pulled.
 
 ## 4. Show the plan
 
+Run `python scripts/install_vault.py --yes` after every clone or pull. Since 2026-11-17 the brain's gate hooks are written per machine into `.claude/settings.local.json`; without this run no PII, edit or session gate loads.
+
 ```bash
 python scripts/install_vault.py --dry-run
 ```

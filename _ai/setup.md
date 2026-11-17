@@ -6,6 +6,8 @@ un-synced project `CLAUDE.md`.
 
 ## Quick start
 
+Run `python scripts/install_vault.py --yes` after every clone or pull. Since 2026-11-17 the brain's gate hooks are written per machine into `.claude/settings.local.json`; without this run no PII, edit or session gate loads.
+
 **If you already have this folder**, open it in Claude Code and say "install the vault".
 Claude follows [[update]], which runs `scripts/install_vault.py`. That binds the things a
 clone cannot carry (git guards, the Claude Code plugins with auto-update on), clears what
@@ -285,8 +287,10 @@ folder hub, then grep.
 
 ## 6. What runs by itself, once this is done
 
-Three Claude Code hooks are configured in `.claude/settings.json`, which is committed, so
-they apply to every clone without further setup. A fourth, the `answer-only`
+Three Claude Code hooks are written by `install_vault.py` into the gitignored
+`.claude/settings.local.json`, by absolute path. They apply once the installer has run on that
+machine: run `python scripts/install_vault.py --yes` after every clone or pull, or no PII, edit or
+session gate loads. A fourth, the `answer-only`
 `UserPromptSubmit` gate, left with the retired `central` plugin on 2026-11-07.
 
 `SessionStart` runs `scripts/session_gate.py`: the two sub-second gates plus the wiki's `index.md`

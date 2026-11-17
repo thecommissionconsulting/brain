@@ -85,7 +85,7 @@ is how the vault gets more reliable over time. `python scripts/check_gates.py --
 | R-45 | Model | Claude drafts; a human decides what is true | §Output contract | the `owner:` field on every note | MANUAL | ok |
 | R-46 | Model | The model writes only where §Permissions allows | §Permissions | — | MANUAL | ok |
 | R-48 | Model | Generated artifacts — a report, export or scratch file — are written to `raw/output/`, never into `wiki/` (wiki) | §Permissions | `.gitignore` keeps `raw/` out of the repo; nothing checks the placement itself | MANUAL | ok |
-| R-49 | Model | Artifacts in `raw/output/` are triaged with the owner before the session ends | §Artifact triage | `review_output.py --gate` on Stop, once per session, from `.claude/settings.json` | WARN (local) | ok |
+| R-49 | Model | Artifacts in `raw/output/` are triaged with the owner before the session ends | §Artifact triage | `review_output.py --gate` on Stop, once per session, written by install_vault.py into the gitignored `.claude/settings.local.json` by absolute path | WARN (local) | ok |
 | R-50 | Reply | Every request is a Question, a Task or a Build; a Task opens with a goal and an ETA and starts; a Build opens with a goal and an ETA and waits for "go" | §Response contract | — | MANUAL | ok |
 | R-51 | Reply | Only agreed work is done; growth means a new goal and ETA, unclarity means one question | §Response contract | — | MANUAL | ok |
 | R-52 | Reply | Opus plans, Haiku executes; a blocked Haiku stops and only Opus changes the plan | §Response contract | — | MANUAL | ok; nothing checks which model executes |
@@ -94,7 +94,7 @@ is how the vault gets more reliable over time. `python scripts/check_gates.py --
 | R-55 | Reply | A Build runs the Build flow: Jev picks the superpowers skill, Elephant drafts, a Goldfish subagent reviews, the owner approves | §Response contract | `scripts/jev_route.py` picks the skill; the rest is unguarded | MANUAL | ok |
 | R-56 | Model | Before a prompt leaves the machine, a local sweep masks PII with tags. Jev gets only the masked prompt, or a Build summary, at a fixed endpoint. The sweep fails closed. Named scripts may write `_local/`; the model may not. | §Permissions | `scripts/jev_client.py` `may_send`, `load_policy` and `send`. `scripts/jev_route.py` sends only through them | **HARD** (local) | **breached**: code pending. A flagged prompt is skipped, not masked. |
 | R-57 | Model | Retired. | — | — | MANUAL | retired |
-| R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, wired in `.claude/settings.json`). Blocks a distinctive name; warns on a single-word folder name. Client repos too: `wiki_edit_gate.py --client`, wired by `install_vault.py --client-repo` | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
+| R-58 | Model | An edit under `wiki/clients/<client>/` never names another client. Stops accidents, not intent: Bash writes are not checked | §Permissions | `scripts/wiki_edit_gate.py` (PreToolUse on Write, Edit and MultiEdit, written by install_vault.py into the gitignored `.claude/settings.local.json` by absolute path). Blocks a distinctive name; warns on a single-word folder name. Client repos too: `wiki_edit_gate.py --client`, wired by `install_vault.py --client-repo` | **HARD** (local) for distinctive names; WARN for single-word folder names | ok |
 | R-59 | Model | An edit to the wiki holds no instructions aimed at an AI model | §Permissions | `scripts/wiki_edit_gate.py`, pattern `AI_TEXT`. Warns only | WARN (local) | ok |
 | R-60 | Model | The nightly digest writes and updates wiki notes unattended. Every note it touches carries `source: nightly-digest`; it pushes to the wiki `main` only when the wiki checks pass, else it parks the work on a local `digest/<date>` branch | §Permissions | `scripts/nightly_digest.py`: pushes only after the wiki checks pass; otherwise parks the work on `digest/<date>` | **HARD** (local) | ok |
 | R-61 | Reply | The fresh-eyes review's depth follows `scripts/review_triage.py`: `quick` is one reviewer pass over the diff; `full` is the full review. | §Response contract | `scripts/review_triage.py` picks the depth; the review itself is unguarded | MANUAL | ok |
@@ -373,9 +373,10 @@ Every HARD rule names a gate file that exists in the repo, and a `.py` gate name
 in its source. `scripts/check_gates.py` checks this, in CI and at session start (R-62). The full suite runs in CI on every push
 and PR.
 
-Two other hooks sit in `.claude/settings.json`: `pii_gate.py` on `PreToolUse`, which keeps
-the vault's bulk personal data out of the prompt, and `review_output.py --gate` on `Stop`,
-which raises the artifact review once per session (§Artifact triage).
+Two other hooks are written by `install_vault.py` into the gitignored `.claude/settings.local.json`,
+by absolute path: `pii_gate.py` on `PreToolUse`, which keeps the vault's bulk personal data out
+of the prompt, and `review_output.py --gate` on `Stop`, which raises the artifact review once per
+session (§Artifact triage).
 
 Related: `_ai/retrieval.md` in the wiki · [[setup]]
 

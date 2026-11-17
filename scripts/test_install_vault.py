@@ -658,10 +658,77 @@ def matcher_cases():
     case("the installer's PII matcher keeps the Edit tools",
          all(t in iv.PII_MATCHER.split("|") for t in ("Edit", "Write", "NotebookEdit")), True)
     brain = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    pii = [g["matcher"] for g in brain["hooks"]["PreToolUse"] if "pii_gate.py" in
-           json.dumps(g["hooks"])]
-    case("the brain's PII matcher covers MultiEdit", [("MultiEdit" in m) for m in pii], [True])
-    case("the brain's PII matcher is the installer's", pii, [iv.PII_MATCHER])
+    case("the committed brain settings carry no hooks", "hooks" in brain, False)
+    case("the committed settings ask before editing the local settings",
+         all(r in brain["permissions"]["ask"]
+             for r in ("Edit(/.claude/settings.local.json)", "Write(/.claude/settings.local.json)")), True)
+
+
+# ---- the brain's own gate hooks ----------------------------------------------
+# The installer writes them into the gitignored .claude/settings.local.json by absolute
+# path. Every case below points iv.ROOT at a temporary brain whose path holds a space.
+
+def brain_hook_cases():
+    e = iv.brain_hook_entries("C:/Users/A B/brain")
+    case("brain hooks: four events-groups", sorted((k, len(v)) for k, v in e.items()),
+         [("PreToolUse", 2), ("SessionStart", 1), ("Stop", 1)])
+    case("brain hooks: PII command is quoted absolute", e["PreToolUse"][0]["hooks"][0]["command"],
+         'python "C:/Users/A B/brain/scripts/pii_gate.py"')
+    case("brain hooks: PII matcher is the installer's", e["PreToolUse"][0]["matcher"], iv.PII_MATCHER)
+    case("brain hooks: edit gate matcher", e["PreToolUse"][1]["matcher"], iv.EDIT_MATCHER)
+    case("brain hooks: Stop runs review_output --gate", e["Stop"][0]["hooks"][0]["command"],
+         'python "C:/Users/A B/brain/scripts/review_output.py" --gate')
+    case("brain hooks: every command is valid JSON round-trip", json.loads(json.dumps(e)) == e, True)
+
+    saved_root = iv.ROOT
+
+    # No local file: the step is not done, the apply writes the file, a second apply changes nothing.
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        iv.ROOT = t / "my brain"
+        try:
+            case("brain_hooks_missing: not ok", iv.step_brain_hooks()[0], False)
+            ok, _ = iv.apply_brain_hooks()
+            case("brain_hooks_missing: apply ok", ok, True)
+            case("brain_hooks_missing: step ok after", iv.step_brain_hooks()[0], True)
+            case("brain_hooks_missing: second apply is a no-op", iv.apply_brain_hooks(),
+                 (True, "already wired"))
+        finally:
+            iv.ROOT = saved_root
+
+    # A local file with the wiki directory and a foreign hook: both are kept.
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        iv.ROOT = t / "my brain"
+        try:
+            (t / "my brain" / ".claude").mkdir(parents=True)
+            path = t / "my brain" / ".claude" / "settings.local.json"
+            path.write_text(json.dumps({"permissions": {"additionalDirectories": ["/w"]},
+                                        "hooks": {"PostToolUse": [{"hooks": [
+                                            {"type": "command", "command": "echo keep"}]}]}}),
+                            encoding="utf-8")
+            iv.apply_brain_hooks()
+            data = json.loads(path.read_text(encoding="utf-8"))
+            case("brain_hooks_keeps: the wiki directory is kept",
+                 data["permissions"]["additionalDirectories"], ["/w"])
+            case("brain_hooks_keeps: a foreign hook is kept",
+                 data["hooks"]["PostToolUse"][0]["hooks"][0]["command"], "echo keep")
+        finally:
+            iv.ROOT = saved_root
+
+    # Malformed JSON: the step is not done, the apply fails and the file is untouched.
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        iv.ROOT = t / "my brain"
+        try:
+            (t / "my brain" / ".claude").mkdir(parents=True)
+            path = t / "my brain" / ".claude" / "settings.local.json"
+            path.write_text("{not json", encoding="utf-8")
+            case("brain_hooks_bad_json: not ok", iv.step_brain_hooks()[0], False)
+            case("brain_hooks_bad_json: apply fails, file untouched",
+                 (iv.apply_brain_hooks()[0], path.read_text(encoding="utf-8")), (False, "{not json"))
+        finally:
+            iv.ROOT = saved_root
 
 
 # ---- client repos ------------------------------------------------------------
@@ -1049,7 +1116,7 @@ def installer_wiring_cases():
             labels = [s[0] for s in iv.STEPS]
             case("the three wiring steps follow hook runtimes",
                  labels[labels.index("hook runtimes") + 1:],
-                 ["jev hook", "global rules", "session files"])
+                 ["brain hooks", "jev hook", "global rules", "session files"])
             case("the three wiring steps need a restart",
                  all(x in iv.NEEDS_RESTART for x in ("jev hook", "global rules", "session files")),
                  True)
@@ -1702,6 +1769,7 @@ def main():
     verify_cases()
     jev_cases()
     matcher_cases()
+    brain_hook_cases()
     client_repo_cases()
     nightly_cases()
     installer_wiring_cases()
