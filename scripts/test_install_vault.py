@@ -669,6 +669,9 @@ def matcher_cases():
 # path. Every case below points iv.ROOT at a temporary brain whose path holds a space.
 
 def brain_hook_cases():
+    # Unstubbed: the real vault_hook_runtimes must see the brain gates, which are no longer
+    # in the committed settings.json.
+    case("vault hook runtimes cover the brain gates", "python" in iv.vault_hook_runtimes(), True)
     e = iv.brain_hook_entries("C:/Users/A B/brain")
     case("brain hooks: four events-groups", sorted((k, len(v)) for k, v in e.items()),
          [("PreToolUse", 2), ("SessionStart", 1), ("Stop", 1)])

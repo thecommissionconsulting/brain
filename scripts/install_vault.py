@@ -1094,13 +1094,12 @@ def hook_runtimes(plugin_root):
 
 
 def vault_hook_runtimes():
-    """The runtimes the committed .claude/settings.json hooks start. Gate hooks: see brain_hook_entries."""
-    try:
-        hooks = json.loads((ROOT / ".claude" / "settings.json")
-                           .read_text(encoding="utf-8")).get("hooks") or {}
-    except (OSError, ValueError, AttributeError):
-        return set()
-    return runtimes_in(hooks)
+    """The runtimes the brain's gate hooks start, from the installer's own definition.
+
+    Uses brain_hook_entries, not the local settings file, so the check holds whether or
+    not the local file is wired yet.
+    """
+    return runtimes_in(brain_hook_entries(ROOT.as_posix()))
 
 
 def runtimes_in(hooks):
