@@ -9,8 +9,9 @@ JEV_ENDPOINT variable is not read.
 Every call is masked first: each patterns.scan match becomes a `[PII:<label>]` tag and is
 never sent raw. The API key comes only from the
 TYPESAFE_API_KEY environment variable and is never printed, logged or written to a file.
-send() enforces a total deadline. Decisions are logged with a SHA-256 of the sent text,
-never the text itself. Logging never raises.
+send() enforces a total deadline. The "never the text itself" rule applies to log_decision,
+which logs a SHA-256 of the sent text. log_pii stores the masked text that was sent, in
+_local/jev-pii/, for a prompt Jev flags as still holding personal data. Logging never raises.
 
 Enforces R-56 for every call to Jev: the policy mode decides, and the PII sweep masks the text first and fails closed.
 """

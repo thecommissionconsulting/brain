@@ -17,7 +17,7 @@ skill that should start it. One call asks kind, skill and pii. Claude still deci
 CLAUDE.md "How Claude responds".
 - Masked, then sent: each PII scan match (scripts/patterns.py) becomes a `[PII:<label>]`
   tag before anything leaves. The scan fails closed: if it cannot load or run, nothing is sent.
-- A PII "yes" from Jev is logged locally to _local/jev-pii/, with the masked text.
+- A PII "yes" from Jev is logged locally to _local/jev-pii/, with the masked text that was sent.
 - Skipped, not sent: empty prompts, slash commands, and any prompt the policy in
   _local/jev-policy.json does not allow (mode off).
 - The `#pii-ok` override of prompt_gate.py does not apply here.
@@ -34,7 +34,10 @@ Usage, from the repo root:
   python scripts/jev_route.py --text "Add a CSV export to the reports page"
   python scripts/jev_route.py raw/output/build-summary.md
 
-Exit codes: 0 routed, 2 bad input, no key, policy off or a text the PII sweep refuses,
+The Build route (`--text` or a file) asks the same pii question as the hook, and a PII
+"yes" is logged to _local/jev-pii/ with the masked text that was sent.
+
+Exit codes: 0 routed, 2 bad input, no key, policy off or the PII scan is unavailable,
 3 the Jev call failed.
 
 Enforces R-56 for Build routing: only a short summary of the Build is sent, and only through jev_client.
@@ -100,6 +103,11 @@ def build_request(text):
                 "instructions": "Which superpowers skill should start this Build",
                 "criteria": dict(SKILLS),
             },
+            "pii": {
+                "type": "choice",
+                "instructions": "Is personal data still present in this text",
+                "criteria": dict(PII),
+            },
         },
     }
 
@@ -150,11 +158,14 @@ def parse_response(data):
     probabilities = answer.get("probabilities") or {}
     if choice not in SKILLS:
         choice = None
+    pii, pii_confidence = read_pii(answers)
     return {
         "skill": choice,
         "confidence": confidence,
         "ask_user": choice is None or confidence < THRESHOLD,
         "probabilities": probabilities,
+        "pii": pii,
+        "pii_confidence": pii_confidence,
     }
 
 
@@ -164,6 +175,20 @@ def number(value):
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def read_pii(answers):
+    """(pii, confidence) from Jev's pii answer. pii is True for "yes", False for "no", and
+    None for anything else, including a missing answer. The confidence is 0.0 when missing."""
+    pii_answer = answers.get("pii") if isinstance(answers.get("pii"), dict) else {}
+    choice = pii_answer.get("choice")
+    if choice == "yes":
+        pii = True
+    elif choice == "no":
+        pii = False
+    else:
+        pii = None
+    return pii, number(pii_answer.get("confidence"))
 
 
 def parse_hook_response(data):
@@ -189,14 +214,7 @@ def parse_hook_response(data):
         skill = None
     skill_confidence = number(skill_answer.get("confidence"))
 
-    pii_answer = answers.get("pii") if isinstance(answers.get("pii"), dict) else {}
-    pii_choice = pii_answer.get("choice")
-    if pii_choice == "yes":
-        pii = True
-    elif pii_choice == "no":
-        pii = False
-    else:
-        pii = None
+    pii, pii_confidence = read_pii(answers)
 
     return {
         "kind": kind,
@@ -206,7 +224,7 @@ def parse_hook_response(data):
         "skill_confidence": skill_confidence,
         "skill_ask_user": skill is None or skill_confidence < THRESHOLD,
         "pii": pii,
-        "pii_confidence": number(pii_answer.get("confidence")),
+        "pii_confidence": pii_confidence,
     }
 
 
@@ -287,7 +305,7 @@ def run_hook(stdin_text, env, call=None, scan=None, policy=None):
         return json.dumps({"systemMessage": "Jev classify failed: " + jev_client.error_label(err)})
     jev_client.log_decision("prompt", masked, answers, cut, ms=ms)
     if result["pii"] is True:
-        jev_client.log_pii("prompt", masked, tags, result["pii_confidence"])
+        jev_client.log_pii("prompt", request["state"], tags, result["pii_confidence"])
     return json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                               "additionalContext": hook_context(result)}})
 
@@ -333,7 +351,7 @@ def main(argv=None):
         print("Bad input: " + str(err), file=sys.stderr)
         return 2
 
-    allowed, reason, masked, _ = jev_client.prepare(raw, "meta", policy)
+    allowed, reason, masked, tags = jev_client.prepare(raw, "meta", policy)
     if not allowed:
         print("Jev not called: " + reason, file=sys.stderr)
         return 2
@@ -363,6 +381,8 @@ def main(argv=None):
         return 3
 
     jev_client.log_decision("build", masked, answers, cut)
+    if result["pii"] is True:
+        jev_client.log_pii("build", payload["state"], tags, result["pii_confidence"])
     print(json.dumps(result))
     return 0
 

@@ -229,6 +229,81 @@ def main():
     case("build: the log gets the answer's questions", LOGGED[0][1] if LOGGED else None, ["skill"])
     case("build: the log gets the cut flag as False", LOGGED[0][2] if LOGGED else None, False)
 
+    # --- the Build route asks the PII question (fix 1) ---
+    case("build request: asks skill and pii", sorted(jr.build_request("x")["questions"]), ["pii", "skill"])
+    case("build request: the pii question is a choice",
+         jr.build_request("x")["questions"]["pii"]["type"], "choice")
+    case("build request: pii criteria are the pii answers",
+         list(jr.build_request("x")["questions"]["pii"]["criteria"]), list(jr.PII))
+
+    def build_answers(skill, conf, pii=None, pii_conf=0.8):
+        found = {"skill": one(skill, conf)}
+        if pii is not None:
+            found["pii"] = one(pii, pii_conf)
+        return {"answers": found}
+
+    parsed_pii = jr.parse_response(build_answers("brainstorming", 0.8, "yes", 0.8))
+    case("parse response: pii yes is True", parsed_pii["pii"], True)
+    case("parse response: pii confidence is read", parsed_pii["pii_confidence"], 0.8)
+    case("parse response: pii no is False",
+         jr.parse_response(build_answers("brainstorming", 0.8, "no"))["pii"], False)
+    no_pii = jr.parse_response(build_answers("brainstorming", 0.8))
+    case("parse response: no pii answer gives None", no_pii["pii"], None)
+    case("parse response: no pii answer gives 0.0 confidence", no_pii["pii_confidence"], 0.0)
+    case("parse response: an unknown pii answer gives None",
+         jr.parse_response(build_answers("brainstorming", 0.8, "maybe"))["pii"], None)
+    case("parse response: the skill is still read with no pii answer",
+         no_pii["skill"], "brainstorming")
+
+    del PII_LOGGED[:]
+    code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
+                              fake=recording_fake(build_answers("brainstorming", 0.8, "yes", 0.8), []),
+                              policy=META)
+    case("build pii yes: exits 0", code, 0)
+    case("build pii yes: logs one entry", len(PII_LOGGED), 1)
+    case("build pii yes: the entry is use build",
+         PII_LOGGED[0][0] if PII_LOGGED else None, "build")
+    case("build pii yes: the confidence is 0.8",
+         PII_LOGGED[0][3] if PII_LOGGED else None, 0.8)
+    case("build pii yes: the printed JSON carries pii",
+         json.loads(out).get("pii") if out else None, True)
+
+    del PII_LOGGED[:]
+    code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
+                              fake=recording_fake(build_answers("brainstorming", 0.8, "no"), []),
+                              policy=META)
+    case("build pii no: logs nothing", PII_LOGGED, [])
+
+    del PII_LOGGED[:]
+    code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
+                              fake=recording_fake(build_answers("brainstorming", 0.8), []),
+                              policy=META)
+    case("build no pii answer: exits 0", code, 0)
+    case("build no pii answer: logs nothing", PII_LOGGED, [])
+
+    # --- the logged text is the text sent (fix 2) ---
+    del PII_LOGGED[:]
+    long_prompt = "Email a@b.com " + "x" * (jr.HOOK_MAX_CHARS + 500)
+    run_hook_fake = recording_fake({"answers": {"kind": one("question", 0.9), "pii": one("yes", 0.7)}}, [])
+    jr.run_hook(json.dumps({"prompt": long_prompt}), {"TYPESAFE_API_KEY": "test-key"},
+                call=run_hook_fake, policy=META)
+    case("hook logs the sent text: one entry", len(PII_LOGGED), 1)
+    case("hook logs the sent text: length is at most HOOK_MAX_CHARS",
+         len(PII_LOGGED[0][1]) <= jr.HOOK_MAX_CHARS if PII_LOGGED else False, True)
+    case("hook logs the sent text: it is the cut text",
+         PII_LOGGED[0][1] if PII_LOGGED else None,
+         jr.build_hook_request(jr.should_send(long_prompt, policy=META)[2])["state"]
+         if PII_LOGGED else None)
+
+    del PII_LOGGED[:]
+    long_summary = "Mail [PII:email address] " + "y" * (jr.MAX_CHARS + 500)
+    code, out, err = run_main(["--text", long_summary], env_key="test-key",
+                              fake=recording_fake(build_answers("brainstorming", 0.8, "yes", 0.8), []),
+                              policy=META)
+    case("build logs the sent text: one entry", len(PII_LOGGED), 1)
+    case("build logs the sent text: length is at most MAX_CHARS",
+         len(PII_LOGGED[0][1]) <= jr.MAX_CHARS if PII_LOGGED else False, True)
+
     # --- the send path goes through jev_client ---
     case("ENDPOINT is the client's endpoint", jr.ENDPOINT, jc.DEFAULT_ENDPOINT)
     case("the old CENTRAL path is gone", hasattr(jr, "CENTRAL"), False)
