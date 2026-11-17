@@ -12,7 +12,7 @@ TYPESAFE_API_KEY environment variable and is never printed, logged or written to
 send() enforces a total deadline. Decisions are logged with a SHA-256 of the sent text,
 never the text itself. Logging never raises.
 
-Enforces R-56 for every call to Jev: only metadata is sent, the policy mode decides, and the PII scan runs first.
+Enforces R-56 for every call to Jev: the policy mode decides, and the PII sweep masks the text first and fails closed.
 """
 import datetime
 import hashlib
@@ -27,6 +27,7 @@ DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
 POLICY_PATH = ROOT / "_local" / "jev-policy.json"
 LOG_DIR = ROOT / "_local" / "jev-log"
+PII_DIR = ROOT / "_local" / "jev-pii"
 MODES = {
     "off": set(),
     "meta": {"meta"},
@@ -43,26 +44,6 @@ def load_policy(path=POLICY_PATH):
     if not isinstance(data, dict) or data.get("mode") not in MODES:
         return off
     return {"mode": data["mode"]}
-
-
-def may_send(text, zone, policy, scan=None):
-    """(allowed, reason). Reasons: ok, empty, policy off, zone not allowed,
-    personal data, PII scan unavailable."""
-    if policy.get("mode") not in MODES or not MODES[policy["mode"]]:
-        return False, "policy off"
-    if not text.strip():
-        return False, "empty"
-    if zone not in MODES[policy["mode"]]:
-        return False, "zone not allowed"
-    try:
-        if scan is None:
-            from patterns import scan
-        hits = scan(text)
-    except Exception:
-        return False, "PII scan unavailable"
-    if hits:
-        return False, "personal data"
-    return True, "ok"
 
 
 def mask(text, scan=None):
@@ -183,6 +164,29 @@ def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR, ms=None):
         }
         if ms is not None:
             record["ms"] = ms
+        directory = pathlib.Path(log_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        with (directory / (now.strftime("%Y-%m-%d") + ".jsonl")).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
+
+
+def log_pii(use, masked_text, tags, confidence, log_dir=PII_DIR):
+    """Append one JSON line to log_dir/YYYY-MM-DD.jsonl for a prompt Jev flagged as still
+    holding personal data (R-65). The line keeps the masked text: the owner chose that.
+    Never raises.
+    """
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        record = {
+            "time": now.isoformat(timespec="seconds"),
+            "use": use,
+            "confidence": confidence,
+            "tags": list(tags),
+            "sha256": hashlib.sha256(masked_text.encode("utf-8")).hexdigest(),
+            "text": masked_text,
+        }
         directory = pathlib.Path(log_dir)
         directory.mkdir(parents=True, exist_ok=True)
         with (directory / (now.strftime("%Y-%m-%d") + ".jsonl")).open("a", encoding="utf-8") as f:

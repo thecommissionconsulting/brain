@@ -1,9 +1,9 @@
 """Cases for jev_route.py, run from the repo root: python scripts/test_jev_route.py
 
 No case reaches TypeSafe. The network call is replaced with a fake wherever a case
-needs one, and the decision log is replaced with a recorder, so no case writes to
-_local/. The key cases use the placeholder "test-key" and check that it never
-appears in what the script prints, because a key in a log is a leaked key.
+needs one, and the decision log and the PII log are replaced with recorders, so no
+case writes to _local/. The key cases use the placeholder "test-key" and check that it
+never appears in what the script prints, because a key in a log is a leaked key.
 """
 import contextlib
 import importlib.util
@@ -30,6 +30,7 @@ RAN = [0]
 META = {"mode": "meta"}
 OFF = {"mode": "off"}
 LOGGED = []
+PII_LOGGED = []
 
 
 def record_log(use, sent_text, answers, cut, log_dir=None, ms=None):
@@ -41,8 +42,14 @@ def record_log(use, sent_text, answers, cut, log_dir=None, ms=None):
     LOGGED.append((use, sorted(answers), cut))
 
 
+def record_pii(use, text, tags, conf, log_dir=None):
+    """Stands in for jev_client.log_pii: keeps what it would write, never _local/."""
+    PII_LOGGED.append((use, text, tags, conf))
+
+
 REAL_LOG = jc.log_decision
 jc.log_decision = record_log
+jc.log_pii = record_pii
 
 
 def case(name, got, want):
@@ -63,8 +70,19 @@ def raised(fn, *args):
 
 
 def answer(choice, confidence):
+    """A build-route response: one answer, to the skill question."""
     return {"answers": {"skill": {"choice": choice, "confidence": confidence,
                                   "probabilities": {choice: confidence}}}}
+
+
+def one(choice, confidence):
+    """One Jev answer to a choice question."""
+    return {"choice": choice, "confidence": confidence, "probabilities": {choice: confidence}}
+
+
+def kind_only(choice, confidence):
+    """A hook response that answers only the kind question."""
+    return {"answers": {"kind": one(choice, confidence)}}
 
 
 def run_main(argv, env_key=None, fake=None, policy=None):
@@ -110,6 +128,11 @@ def recording_fake(answer_payload, calls):
         calls.append(payload)
         return answer_payload
     return fake
+
+
+def context_of(out):
+    """The additionalContext string in the hook's printed JSON."""
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
 def main():
@@ -174,7 +197,7 @@ def main():
     code, out, err = run_main(["--text", "x", "also-a-file.md"])
     case("both a file and --text exits 2", code, 2)
 
-    # --- policy and the egress gate on the Build path ---
+    # --- policy on the Build path ---
     build_calls = []
     code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
                               fake=recording_fake(answer("brainstorming", 0.8), build_calls),
@@ -184,12 +207,20 @@ def main():
          "Jev disabled by policy (_local/jev-policy.json)" in err, True)
     case("build: policy off never calls Jev", len(build_calls), 0)
 
+    # --- the Build route masks PII and sends the masked text in one call ---
     code, out, err = run_main(["--text", "Mail a@b.com about it"], env_key="test-key",
                               fake=recording_fake(answer("brainstorming", 0.8), build_calls),
                               policy=META)
-    case("build: personal data exits 2", code, 2)
-    case("build: personal data names the reason", "personal data" in err, True)
-    case("build: personal data never calls Jev", len(build_calls), 0)
+    case("build: personal data is masked and sent, exit 0", code, 0)
+    case("build: the sent state has the tag",
+         build_calls[-1]["state"] if build_calls else None, "Mail [PII:email address] about it")
+    case("build: the address never leaves", "a@b.com" in json.dumps(build_calls[-1:]), False)
+
+    code, out, err = run_main(["--text", "fix a@b.co"], env_key="test-key",
+                              fake=recording_fake(answer("systematic-debugging", 0.9), build_calls))
+    case("build: a masked Build exits 0", code, 0)
+    case("build: the sent state has the tag again",
+         build_calls[-1]["state"] if build_calls else None, "fix [PII:email address]")
 
     del LOGGED[:]
     code, out, err = run_main(["--text", "Plan the new export"], env_key="test-key",
@@ -227,33 +258,58 @@ def main():
     case("call_jev sends to the client's endpoint", seen.get("endpoint"), jc.DEFAULT_ENDPOINT)
     case("call_jev passes its timeout on", seen.get("timeout"), 7)
 
-    # --- classify: build_classify_request ---
-    creq = jr.build_classify_request("  What time is it in Auckland?  ")
-    case("classify: the question key is kind", "kind" in creq["questions"], True)
-    case("classify: criteria keys are the kinds", list(creq["questions"]["kind"]["criteria"]), list(jr.KINDS))
-    case("classify: the result keys are exact", set(creq), {"state", "model", "questions"})
-    case("classify: the text is stripped", creq["state"], "What time is it in Auckland?")
-    case("classify: a long prompt is cut to HOOK_MAX_CHARS",
-         len(jr.build_classify_request("x" * (jr.HOOK_MAX_CHARS + 500))["state"]), jr.HOOK_MAX_CHARS)
-    case("classify: empty text raises ValueError", raised(jr.build_classify_request, "  "), ValueError)
+    # --- hook request: build_hook_request ---
+    case("hook request: the three questions", sorted(jr.build_hook_request("x")["questions"]),
+         ["kind", "pii", "skill"])
+    hreq = jr.build_hook_request("  What time is it in Auckland?  ")
+    case("hook request: the result keys are exact", set(hreq), {"state", "model", "questions"})
+    case("hook request: the text is stripped", hreq["state"], "What time is it in Auckland?")
+    case("hook request: kind criteria are the kinds",
+         list(hreq["questions"]["kind"]["criteria"]), list(jr.KINDS))
+    case("hook request: skill criteria are the skills",
+         list(hreq["questions"]["skill"]["criteria"]), list(jr.SKILLS))
+    case("hook request: pii criteria are the pii answers",
+         list(hreq["questions"]["pii"]["criteria"]), list(jr.PII))
+    case("hook request: every question is a choice",
+         all(q["type"] == "choice" for q in hreq["questions"].values()), True)
+    case("hook request: a long prompt is cut to HOOK_MAX_CHARS",
+         len(jr.build_hook_request("x" * (jr.HOOK_MAX_CHARS + 500))["state"]), jr.HOOK_MAX_CHARS)
+    case("hook request: empty text raises ValueError", raised(jr.build_hook_request, "  "), ValueError)
 
-    # --- classify: parse_classify_response ---
-    def kind_answer(choice, confidence):
-        return {"answers": {"kind": {"choice": choice, "confidence": confidence,
-                                     "probabilities": {choice: confidence}}}}
+    # --- hook response: parse_hook_response ---
+    phr = jr.parse_hook_response({"answers": {"kind": one("build", 0.9)}})
+    case("parse hook: kind is read", phr["kind"], "build")
+    case("parse hook: no skill answer gives None", phr["skill"], None)
+    case("parse hook: no skill answer asks the user", phr["skill_ask_user"], True)
+    case("parse hook: no pii answer gives None", phr["pii"], None)
+    case("parse hook: pii confidence defaults to 0.0", phr["pii_confidence"], 0.0)
 
-    cbuild = jr.parse_classify_response(kind_answer("build", 0.9))
-    case("classify parse: a confident build gives kind build", cbuild["kind"], "build")
-    case("classify parse: and does not ask the user", cbuild["ask_user"], False)
-    ctask = jr.parse_classify_response(kind_answer("task", 0.4))
-    case("classify parse: a low-confidence task asks the user", ctask["ask_user"], True)
-    cunknown = jr.parse_classify_response(kind_answer("made-up-kind", 0.9))
-    case("classify parse: an unknown kind gives None", cunknown["kind"], None)
-    case("classify parse: and asks the user", cunknown["ask_user"], True)
-    case("classify parse: an empty response raises ValueError",
-         raised(jr.parse_classify_response, {}), ValueError)
+    full = jr.parse_hook_response({"answers": {"kind": one("build", 0.9),
+                                               "skill": one("writing-plans", 0.8),
+                                               "pii": one("yes", 0.7)}})
+    case("parse hook: skill is read", full["skill"], "writing-plans")
+    case("parse hook: skill confidence is read", full["skill_confidence"], 0.8)
+    case("parse hook: a confident skill does not ask", full["skill_ask_user"], False)
+    case("parse hook: pii yes is True", full["pii"], True)
+    case("parse hook: pii confidence is read", full["pii_confidence"], 0.7)
 
-    # --- classify: hook_context ---
+    case("parse hook: pii no is False",
+         jr.parse_hook_response({"answers": {"kind": one("task", 0.9), "pii": one("no", 0.9)}})["pii"], False)
+    case("parse hook: an unknown pii answer gives None",
+         jr.parse_hook_response({"answers": {"kind": one("task", 0.9), "pii": one("maybe", 0.9)}})["pii"], None)
+    unknown_skill = jr.parse_hook_response({"answers": {"kind": one("build", 0.9),
+                                                        "skill": one("made-up", 0.9)}})
+    case("parse hook: an unknown skill gives None", unknown_skill["skill"], None)
+    case("parse hook: and asks the user", unknown_skill["skill_ask_user"], True)
+    bad_conf = jr.parse_hook_response({"answers": {"kind": one("build", 0.9),
+                                                   "skill": {"choice": "writing-plans", "confidence": "high"}}})
+    case("parse hook: a non-numeric skill confidence is 0.0", bad_conf["skill_confidence"], 0.0)
+    case("parse hook: and so asks the user", bad_conf["skill_ask_user"], True)
+    case("parse hook: no kind raises ValueError",
+         raised(jr.parse_hook_response, {"answers": {}}), ValueError)
+    case("parse hook: an empty response raises ValueError", raised(jr.parse_hook_response, {}), ValueError)
+
+    # --- hook_context ---
     case("hook context: a confident build",
          jr.hook_context({"kind": "build", "confidence": 0.82, "ask_user": False}),
          "Jev labels this prompt a Build (confidence 0.82). Treat it as a hint; you decide.")
@@ -263,30 +319,62 @@ def main():
     case("hook context: no usable label",
          jr.hook_context({"kind": None, "confidence": 0.9, "ask_user": True}),
          "Jev gave no usable label for this prompt. Classify it yourself.")
+    case("hook context: a build with a confident skill names it",
+         jr.hook_context({"kind": "build", "confidence": 0.9, "ask_user": False,
+                          "skill": "writing-plans", "skill_confidence": 0.8, "skill_ask_user": False,
+                          "pii": False, "pii_confidence": 0.9}),
+         "Jev labels this prompt a Build (confidence 0.90). Treat it as a hint; you decide. "
+         "Skill hint: writing-plans (confidence 0.80).")
+    case("hook context: a task gets no skill hint",
+         jr.hook_context({"kind": "task", "confidence": 0.9, "ask_user": False,
+                          "skill": "writing-plans", "skill_confidence": 0.8, "skill_ask_user": False,
+                          "pii": False}),
+         "Jev labels this prompt a Task (confidence 0.90). Treat it as a hint; you decide.")
+    case("hook context: an unsure skill is named unsure",
+         jr.hook_context({"kind": "build", "confidence": 0.9, "ask_user": False,
+                          "skill": "writing-plans", "skill_confidence": 0.3, "skill_ask_user": True,
+                          "pii": False}),
+         "Jev labels this prompt a Build (confidence 0.90). Treat it as a hint; you decide. "
+         "Skill hint unsure: writing-plans.")
+    case("hook context: an unsure build with no skill says none",
+         jr.hook_context({"kind": "build", "confidence": 0.9, "ask_user": False,
+                          "skill": None, "skill_confidence": 0.0, "skill_ask_user": True,
+                          "pii": False}),
+         "Jev labels this prompt a Build (confidence 0.90). Treat it as a hint; you decide. "
+         "Skill hint unsure: none.")
+    case("hook context: pii yes says personal data may remain",
+         jr.hook_context({"kind": "question", "confidence": 0.9, "ask_user": False,
+                          "pii": True, "pii_confidence": 0.7}),
+         "Jev labels this prompt a Question (confidence 0.90). Treat it as a hint; you decide. "
+         "Jev says personal data may remain in this prompt.")
 
-    # --- classify: should_send ---
-    case("should_send: empty prompt", jr.should_send("", scan=lambda t: [], policy=META), (False, "empty"))
+    # --- should_send: (send, reason, masked, tags) ---
+    case("should_send: empty prompt", jr.should_send("", scan=lambda t: [], policy=META),
+         (False, "empty", "", []))
     case("should_send: slash command", jr.should_send("/help", scan=lambda t: [], policy=META),
-         (False, "slash command"))
-    case("should_send: personal data found",
+         (False, "slash command", "", []))
+    case("should_send: personal data is masked and sent",
          jr.should_send("hello", scan=lambda t: [("email address", 0, 5)], policy=META),
-         (False, "personal data"))
+         (True, "ok", "[PII:email address]", ["email address"]))
+
     def scan_broken(t):
         raise RuntimeError("boom")
     case("should_send: a broken scan fails closed",
-         jr.should_send("hello", scan=scan_broken, policy=META), (False, "PII scan unavailable"))
-    case("should_send: clean prompt", jr.should_send("hello", scan=lambda t: [], policy=META), (True, "ok"))
+         jr.should_send("hello", scan=scan_broken, policy=META), (False, "PII scan unavailable", "", []))
+    case("should_send: clean prompt", jr.should_send("hello", scan=lambda t: [], policy=META),
+         (True, "ok", "hello", []))
     case("should_send: policy off sends nothing",
-         jr.should_send("hello", scan=lambda t: [], policy=OFF), (False, "policy off"))
-    case("should_send: real scan finds an email",
-         jr.should_send("email someone@client-domain.com please", policy=META), (False, "personal data"))
+         jr.should_send("hello", scan=lambda t: [], policy=OFF), (False, "policy off", "", []))
+    case("should_send: real scan masks an email",
+         jr.should_send("email someone@client-domain.com please", policy=META),
+         (True, "ok", "email [PII:email address] please", ["email address"]))
 
-    # --- classify: run_hook ---
+    # --- run_hook ---
     clean = lambda t: []
     calls = []
     out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
                       {"TYPESAFE_API_KEY": "test-key"},
-                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=META)
+                      call=recording_fake(kind_only("question", 0.9), calls), scan=clean, policy=META)
     case("run_hook: the context is in the output", "additionalContext" in out, True)
     case("run_hook: the label is a Question", "a Question" in out, True)
     case("run_hook: the request has exactly the three keys",
@@ -298,29 +386,31 @@ def main():
     jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?", "session_id": "sess-secret",
                             "transcript_path": "/x/y"}),
                 {"TYPESAFE_API_KEY": "test-key"},
-                call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=META)
+                call=recording_fake(kind_only("question", 0.9), calls), scan=clean, policy=META)
     sent_text = json.dumps(calls[0]) if calls else ""
     case("run_hook: the session id never leaves", "sess-secret" in sent_text, False)
     case("run_hook: the transcript path never leaves", "/x/y" in sent_text, False)
 
     calls = []
     out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}), {},
-                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=META)
+                      call=recording_fake(kind_only("question", 0.9), calls), scan=clean, policy=META)
     case("run_hook: no key gives no output", out, "")
     case("run_hook: no key never calls Jev", len(calls), 0)
 
+    # One call per prompt, sent masked, PII never leaves.
     calls = []
-    out = jr.run_hook(json.dumps({"prompt": "Email someone@client-domain.com"}),
-                      {"TYPESAFE_API_KEY": "test-key"},
-                      call=recording_fake(kind_answer("question", 0.9), calls),
-                      scan=lambda t: [("email address", 0, 5)], policy=META)
-    case("run_hook: personal data gives no output", out, "")
-    case("run_hook: personal data never calls Jev", len(calls), 0)
+    out = jr.run_hook(json.dumps({"prompt": "mail a@b.co"}), {"TYPESAFE_API_KEY": "test-key"},
+                      call=recording_fake(kind_only("task", 0.9), calls), policy=META)
+    case("run_hook: a PII prompt is sent exactly once", len(calls), 1)
+    case("run_hook: the sent state is masked",
+         calls[0]["state"] if calls else None, "mail [PII:email address]")
+    case("run_hook: the address never leaves", "a@b.co" in json.dumps(calls), False)
+    case("run_hook: a PII prompt still gets the hint", "additionalContext" in out, True)
 
     calls = []
     out = jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
                       {"TYPESAFE_API_KEY": "test-key"},
-                      call=recording_fake(kind_answer("question", 0.9), calls), scan=clean, policy=OFF)
+                      call=recording_fake(kind_only("question", 0.9), calls), scan=clean, policy=OFF)
     case("run_hook: policy off gives no output", out, "")
     case("run_hook: policy off never calls Jev", len(calls), 0)
 
@@ -343,26 +433,46 @@ def main():
     del LOGGED[:]
     jr.run_hook(json.dumps({"prompt": "What time is it in Auckland?"}),
                 {"TYPESAFE_API_KEY": "test-key"},
-                call=recording_fake(kind_answer("question", 0.9), []), scan=clean, policy=META)
+                call=recording_fake(kind_only("question", 0.9), []), scan=clean, policy=META)
     case("run_hook: a routed prompt is logged as prompt", [entry[0] for entry in LOGGED], ["prompt"])
 
-    # --- classify: main --hook ---
-    code, out, err = run_hook_main(b"not json")
-    case("main --hook: bad stdin exits 0", code, 0)
-    case("main --hook: bad stdin prints nothing", out, "")
+    # --- run_hook: the skill hint, the unsure skill, and the PII log ---
+    def hook_answers(answers):
+        return recording_fake({"answers": answers}, [])
 
-    def fake_question(payload, key, timeout=30):
-        return kind_answer("question", 0.9)
+    del PII_LOGGED[:]
+    out = jr.run_hook(json.dumps({"prompt": "Build the export"}), {"TYPESAFE_API_KEY": "test-key"},
+                      call=hook_answers({"kind": one("build", 0.9), "skill": one("writing-plans", 0.8),
+                                         "pii": one("no", 0.9)}),
+                      scan=clean, policy=META)
+    ctx = context_of(out) if out else ""
+    case("run_hook: a build names its skill",
+         "a Build" in ctx and "Skill hint: writing-plans" in ctx, True)
+    case("run_hook: pii no logs nothing", PII_LOGGED, [])
 
-    code, out, err = run_hook_main(b'{"prompt": "What time is it in Auckland?"}',
-                                   env_key="test-key", fake=fake_question)
-    case("main --hook: a valid prompt exits 0", code, 0)
-    case("main --hook: the context is printed", "additionalContext" in out, True)
+    out = jr.run_hook(json.dumps({"prompt": "Fix the export"}), {"TYPESAFE_API_KEY": "test-key"},
+                      call=hook_answers({"kind": one("task", 0.9), "skill": one("writing-plans", 0.8),
+                                         "pii": one("no", 0.9)}),
+                      scan=clean, policy=META)
+    case("run_hook: a task does not name a skill", "writing-plans" in context_of(out), False)
 
-    code, out, err = run_main(["--hook", "--text", "x"])
-    case("main --hook with --text exits 2", code, 2)
+    out = jr.run_hook(json.dumps({"prompt": "Build the export"}), {"TYPESAFE_API_KEY": "test-key"},
+                      call=hook_answers({"kind": one("build", 0.9), "skill": one("writing-plans", 0.3),
+                                         "pii": one("no", 0.9)}),
+                      scan=clean, policy=META)
+    case("run_hook: an unsure skill is named unsure", "Skill hint unsure" in context_of(out), True)
 
-    # --- timing: the hook records how long the Jev call took (R-67) ---
+    del PII_LOGGED[:]
+    out = jr.run_hook(json.dumps({"prompt": "Email someone@client-domain.com"}),
+                      {"TYPESAFE_API_KEY": "test-key"},
+                      call=hook_answers({"kind": one("question", 0.9), "pii": one("yes", 0.7)}),
+                      policy=META)
+    case("run_hook: pii yes says personal data may remain",
+         "personal data may remain" in context_of(out), True)
+    case("run_hook: pii yes logs the masked text once",
+         PII_LOGGED, [("prompt", "Email [PII:email address]", ["email address"], 0.7)])
+
+    # --- run_hook: the timing record (R-67) ---
     timed_dir = pathlib.Path(tempfile.mkdtemp(prefix="jev-route-ms-"))
 
     def timed_log(use, sent_text, answers, cut, log_dir=None, ms=None):
@@ -370,7 +480,7 @@ def main():
 
     def slow_question(payload, key, timeout=30):
         time.sleep(0.01)
-        return kind_answer("question", 0.9)
+        return kind_only("question", 0.9)
 
     try:
         jc.log_decision = timed_log
@@ -383,6 +493,22 @@ def main():
     finally:
         jc.log_decision = record_log
         shutil.rmtree(timed_dir, ignore_errors=True)
+
+    # --- main --hook ---
+    code, out, err = run_hook_main(b"not json")
+    case("main --hook: bad stdin exits 0", code, 0)
+    case("main --hook: bad stdin prints nothing", out, "")
+
+    def fake_question(payload, key, timeout=30):
+        return kind_only("question", 0.9)
+
+    code, out, err = run_hook_main(b'{"prompt": "What time is it in Auckland?"}',
+                                   env_key="test-key", fake=fake_question)
+    case("main --hook: a valid prompt exits 0", code, 0)
+    case("main --hook: the context is printed", "additionalContext" in out, True)
+
+    code, out, err = run_main(["--hook", "--text", "x"])
+    case("main --hook with --text exits 2", code, 2)
 
     print("\ntest_jev_route: " + str(RAN[0] - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")
     return 1 if FAILS[0] else 0
