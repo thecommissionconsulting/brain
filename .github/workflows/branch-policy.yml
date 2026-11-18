@@ -67,7 +67,7 @@ jobs:
               ;;
           esac
 
-      - name: Flag vault-backup-only PR history
+      - name: Count PR commits
         run: |
           set -euo pipefail
           BASE="${{ github.event.pull_request.base.sha }}"
@@ -79,9 +79,6 @@ jobs:
           fi
           total=$(printf '%s\n' "$msgs" | wc -l)
           backups=$(printf '%s\n' "$msgs" | grep -cE '^vault backup:' || true)
-          if [ "$backups" -gt 0 ] && [ "$backups" -eq "$total" ]; then
-            echo "::warning title=Backup-only PR::All $total commits are 'vault backup'. Curate real knowledge (topic branch or selective cherry-pick) before merge — do not dump raw capture onto main."
-          fi
           echo "Commits: $total (vault-backup: $backups)"
 
   # Server-side mirror of the local hooks. core.hooksPath is per-clone config that
@@ -100,7 +97,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Guard the diff (R-30 secrets, R-32 zones, R-33 sensitive content)
+      - name: Guard the diff (R-13 secrets and zones, R-14 sensitive content)
         run: |
           python scripts/hooks_guard.py range \
             "${{ github.event.pull_request.base.sha }}" \

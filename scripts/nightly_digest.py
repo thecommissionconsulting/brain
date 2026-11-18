@@ -40,7 +40,7 @@ import wiki_root  # noqa: E402
 
 PROMPT_FILE = HERE / "nightly_digest_prompt.md"
 DIGEST_MARKER = day_digest.DIGEST_MARKER
-UNATTENDED = ("This is the unattended nightly digest, pre-approved by the owner under rule R-60. "
+UNATTENDED = ("This is the unattended nightly digest, pre-approved by the owner under rule R-24. "
               "No one will answer questions. Do not ask, do not wait for a go, do not plan, do not "
               "invoke skills. Do the steps in the prompt now, then stop. Leave every `status:` "
               "field unchanged.")

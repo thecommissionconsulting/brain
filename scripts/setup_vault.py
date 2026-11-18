@@ -29,7 +29,7 @@ Every step is idempotent. Re-running on a configured machine prints an empty
 plan and exits.
 
 This script never asks for a secret. It asks which tools you use and writes
-placeholders naming the file each real credential belongs in. Vault rule R-30:
+placeholders naming the file each real credential belongs in. Vault rule R-13:
 secrets live in the tools' own config, never in a note.
 """
 from __future__ import annotations

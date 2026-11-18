@@ -1,4 +1,4 @@
-"""PreToolUse gate for wiki edits: R-58 (no other client's name) and R-59 (no text aimed at an AI model).
+"""PreToolUse gate for wiki edits: R-23 (client name): no other client's name. R-23 (AI text): no text aimed at an AI model.
 
 Runs on Write, Edit and MultiEdit. It checks only the text the edit adds, never the
 whole file, and it answers in well under a second. It makes no network call and sends
@@ -8,13 +8,13 @@ _local/ folder.
 Client names come from the folders under wiki/clients/ plus the committed name file
 _ai/client-names.json in the wiki. Every machine gets that file from git clone.
 
-R-58: an edit under wiki/clients/<client>/ that names another client.
+R-23 (client name): an edit under wiki/clients/<client>/ that names another client.
   A distinctive name (two or more words, or any name listed in the name file) is
   blocked. A single-word name taken from a folder only warns. Text inside the client's
   own name is not counted, so "Alpha Co Holdings" in alpha-co-holdings is fine.
   Stops accidents, not intent: Bash writes are not checked.
 
-R-59: an edit to a wiki/**/*.md file that holds text aimed at an AI model. It warns only.
+R-23 (AI text): an edit to a wiki/**/*.md file that holds text aimed at an AI model. It warns only.
 
 Fail-open by design. Any error gives one systemMessage naming the exception type, and
 the edit goes through. A missing wiki gives no output.
@@ -44,7 +44,7 @@ AI_TEXT = re.compile(
     re.IGNORECASE,
 )
 
-MALFORMED_TEXT = "R-58: _ai/client-names.json is malformed; its names are ignored."
+MALFORMED_TEXT = "R-23 (client name): _ai/client-names.json is malformed; its names are ignored."
 
 
 def _hidden(name):
@@ -193,16 +193,16 @@ def _malformed_notice(state_dir):
 
 
 def _deny_reason(own, block):
-    return (f"R-58: this edit to {own}'s notes names another client ({', '.join(block)}). "
+    return (f"R-23 (client name): this edit to {own}'s notes names another client ({', '.join(block)}). "
             f"Remove it, or put shared material in wiki/internal/. If it is a vendor or a "
             f"common word, add it to ignore in _ai/client-names.json.")
 
 
 def _client_mode(client, text, root, data, malformed, state_dir):
-    """--client SLUG: every edit, any path, is checked against that client's name. R-59 is off."""
+    """--client SLUG: every edit, any path, is checked against that client's name. R-23 (AI text) is off."""
     names = clients(root, data)
     if client not in names:
-        return json.dumps({"systemMessage": f"R-58: client {client} is not in the wiki; check skipped."})
+        return json.dumps({"systemMessage": f"R-23 (client name): client {client} is not in the wiki; check skipped."})
     block, warn = foreign_clients(text, client, names)
     out = {}
     messages = []
@@ -211,12 +211,12 @@ def _client_mode(client, text, root, data, malformed, state_dir):
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": (
-                f"R-58: this edit in {client}'s repo names another client ({', '.join(block)}). "
+                f"R-23 (client name): this edit in {client}'s repo names another client ({', '.join(block)}). "
                 f"Remove it, or keep shared material out of this repo. If it is a vendor or a "
                 f"common word, add it to ignore in _ai/client-names.json."),
         }
     if warn:
-        messages.append(f"R-58: this edit in {client}'s repo may name another client "
+        messages.append(f"R-23 (client name): this edit in {client}'s repo may name another client "
                         f"({', '.join(warn)}). Not blocked.")
     if malformed:
         notice = _malformed_notice(state_dir)
@@ -261,7 +261,7 @@ def _run(stdin_text, env, state_dir, client=None):
     ai_match = AI_TEXT.search(text) if rel.startswith("wiki/") and rel.endswith(".md") else None
     r59 = None
     if ai_match:
-        r59 = f'R-59: this edit holds text aimed at an AI model ("{ai_match.group(0)}"). Not blocked.'
+        r59 = f'R-23 (AI text): this edit holds text aimed at an AI model ("{ai_match.group(0)}"). Not blocked.'
 
     if block:
         reason = _deny_reason(own, block)
@@ -275,7 +275,7 @@ def _run(stdin_text, env, state_dir, client=None):
     elif r59:
         messages.append(r59)
     if warn:
-        messages.insert(0, f"R-58: this edit to {own}'s notes may name another client "
+        messages.insert(0, f"R-23 (client name): this edit to {own}'s notes may name another client "
                            f"({', '.join(warn)}). Not blocked.")
     if malformed:
         notice = _malformed_notice(state_dir)
@@ -309,7 +309,7 @@ def main(argv=None):
         value = argv[i + 1] if i + 1 < len(argv) else ""
         if not value or value.startswith("--"):
             sys.stdout.write(json.dumps({"systemMessage": (
-                "R-58: --client needs a client slug, for example --client alpha-co; check skipped.")})
+                "R-23 (client name): --client needs a client slug, for example --client alpha-co; check skipped.")})
                 + "\n")
             return 0
         client = value

@@ -11,7 +11,7 @@ frontmatter-linted but they ARE real wikilink targets ([[rules]]).
 Ported from obsidian-legacy per vault-restructure-design.md §7: `confluence/`
 swapped for `raw/`, `archive/` dropped, and the budget check points at index.md.
 
-Enforces R-02: basenames are unique vault-wide, so links are unambiguous.
+Enforces R-01: basenames are unique vault-wide, so links are unambiguous.
 """
 import collections
 import pathlib
@@ -21,7 +21,7 @@ import sys
 SKIP_PREFIX = (".git/", ".obsidian/", ".claude/", ".agents/",
                "raw/", ".confluence-private/", "scripts/", "assets/", "_local/",
                ".superpowers/", "marketplace/")
-# R-10 budgets BYTES, not lines. index.md sits in the prompt for the whole
+# R-06 budgets BYTES, not lines. index.md sits in the prompt for the whole
 # session, and what that costs is characters. The old 250-line budget was blind
 # to the real problem: Obsidian's table formatter had padded the vault map to
 # 92 KB, 69% of it spaces, at exactly the same line count. Rewriting it as a list

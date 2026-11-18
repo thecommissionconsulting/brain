@@ -13,8 +13,8 @@ Common: --date YYYY-MM-DD (default today), --owner NAME (default git user.name o
 --source TEXT (adds a source: line to the frontmatter).
 
 Never overwrites: an existing path or an existing note with the same stem exits 1.
-Runs the R-58 and R-59 checks from wiki_edit_gate on the text it is about to write. Exit 2
-on an R-58 block. Keeps index.md section 9 true for every folder it creates.
+Runs the R-23 (client name) and R-23 (AI text) checks from wiki_edit_gate on the text it is about to write. Exit 2
+on an R-23 (client name) block. Keeps index.md section 9 true for every folder it creates.
 """
 import argparse
 import ast
@@ -222,7 +222,7 @@ def update_names(wiki, slug_, display):
             if not (isinstance(names, list) and all(isinstance(x, str) for x in names)):
                 raise ValueError("entry")
         except (OSError, ValueError):
-            print(f"R-58: {NAMES_REL} is malformed; left alone. Add {display!r} to it by hand.",
+            print(f"R-23 (client name): {NAMES_REL} is malformed; left alone. Add {display!r} to it by hand.",
                   file=sys.stderr)
             return
     names = data["clients"].setdefault(slug_, [])
@@ -241,20 +241,20 @@ def set_last_touch(path, day):
 
 
 def gate_text(text, own, names):
-    """R-58 blocks (exit 2); R-58 warnings and R-59 hits are printed, and the note is written.
+    """R-23 (client name) blocks (exit 2); R-23 (client name) warnings and R-23 (AI text) hits are printed, and the note is written.
 
-    R-58 applies only to a note that belongs to a client, as in the edit gate: a note under
+    R-23 (client name) applies only to a note that belongs to a client, as in the edit gate: a note under
     wiki/internal/ with no client (a playbook, a timesheet) may name clients."""
     block, warn = wg.foreign_clients(text, own, names) if own else ([], [])
     if block:
-        fail(f"R-58: this note names another client ({', '.join(block)}). Remove that name, or put "
+        fail(f"R-23 (client name): this note names another client ({', '.join(block)}). Remove that name, or put "
              f"shared material in wiki/internal/. The note was not written.")
     if warn:
-        print(f"R-58: this note may name another client ({', '.join(warn)}). Written anyway.",
+        print(f"R-23 (client name): this note may name another client ({', '.join(warn)}). Written anyway.",
               file=sys.stderr)
     hit = wg.AI_TEXT.search(text)
     if hit:
-        print(f'R-59: this note holds text aimed at an AI model ("{hit.group(0)}"). Written anyway.',
+        print(f'R-23 (AI text): this note holds text aimed at an AI model ("{hit.group(0)}"). Written anyway.',
               file=sys.stderr)
 
 

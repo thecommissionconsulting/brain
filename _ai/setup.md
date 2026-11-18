@@ -111,7 +111,7 @@ the workspace for you. Re-running is safe: it reports an empty plan on a machine
 already set up.
 
 **It never asks for a secret.** Credentials are the manual half, below: they live in each
-tool's own config, never in a note ([[rules]] R-30). The rest of this note is the *why* —
+tool's own config, never in a note ([[rules]] R-13). The rest of this note is the *why* —
 the shared/local split, the branch rules, and the platform gotchas — which the script
 cannot explain for you.
 
@@ -181,7 +181,7 @@ installed. The credential-file `Read` deny rules came from `central` and are no 
 added on a new machine; rules an earlier install wrote stay in place.
 
 This vault's own `.claude/settings.json` enables the same plugins. It does not declare
-the `skills` marketplace, because that is a folder whose path differs per machine (R-31);
+the `skills` marketplace, because that is a folder whose path differs per machine (R-13);
 the installer, or `claude plugin marketplace add`, registers it in your global settings.
 
 `skills` is this vault's own `marketplace/` folder, so a clone carries it and no second
@@ -235,7 +235,7 @@ Put in it:
 - Anything else personal you want Claude to know when working in the vault.
 
 **No secrets.** Your Paymo API key and user ID go in user environment variables,
-`PAYMO_API_KEY` and `PAYMO_USER_ID`, not in this file ([[rules]] R-30). On Windows:
+`PAYMO_API_KEY` and `PAYMO_USER_ID`, not in this file ([[rules]] R-13). On Windows:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('PAYMO_API_KEY', '<your key>', 'User')
@@ -304,7 +304,7 @@ list in `_ai/pii-denylist.txt` (wiki) plus a count of distinct external addresse
 time. It fails open: if the gate itself errors, the tool call proceeds.
 
 `Stop` runs `scripts/review_output.py --gate`. Generated artifacts go to `raw/output/`
-(R-48), which is gitignored and therefore invisible to every lint. When a turn ends and an
+(R-22), which is gitignored and therefore invisible to every lint. When a turn ends and an
 artifact there has no ruling, the gate fires once per session and Claude opens the triage
 review: promote it into `wiki/`, keep it, or delete it. See [[rules]] §Artifact triage. Its
 state is machine-local, in `_local/output-triage.json` and `_local/output-triage/`.

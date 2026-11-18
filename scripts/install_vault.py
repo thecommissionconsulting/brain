@@ -220,7 +220,7 @@ def first_match(path, pattern):
     `dbt_cloud.yml`, `gh` `hosts.yml`) also hold passwords and tokens, so this
     returns one captured identifier and never the line, the section or the file.
     Nothing it returns is written anywhere but `_local/`, which is gitignored,
-    and a value that looks like a secret is dropped by `safe()` below (R-30).
+    and a value that looks like a secret is dropped by `safe()` below (R-13).
     """
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -269,8 +269,8 @@ def render(values):
     v = {k: values.get(k, "") or "" for k in FIELDS}
     cli = f"""# CLI bindings, this machine only
 
-Gitignored (R-31). How this machine is wired, never the credentials themselves:
-those stay in each tool's own config (R-30). Written by
+Gitignored (R-13). How this machine is wired, never the credentials themselves:
+those stay in each tool's own config (R-13). Written by
 `scripts/install_vault.py`; edit it freely, nothing reads it but you.
 
 | Tool | Binding on this machine | Where the real credential lives |
@@ -284,7 +284,7 @@ those stay in each tool's own config (R-30). Written by
 """
     workspace = f"""# Workspace bindings, this machine only
 
-Gitignored (R-31). Absolute machine paths belong here and nowhere else in the
+Gitignored (R-13). Absolute machine paths belong here and nowhere else in the
 vault. Written by `scripts/install_vault.py`.
 
 | What | Path on this machine |
@@ -2063,7 +2063,7 @@ def manual():
         left.append("git identity is unset: git config --global user.name / user.email")
     for line in optional_report(optional_gaps()):
         left.append(line)
-    left.append("credentials go in each tool's own config, never in this repo (R-30)")
+    left.append("credentials go in each tool's own config, never in this repo (R-13)")
     return left
 
 

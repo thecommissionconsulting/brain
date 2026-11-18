@@ -5,7 +5,7 @@ for: `archive/` dropped (replaced by `status: archived`) and `confluence/`
 swapped for `raw/`. The master index here is index.md, per the owner's ruling
 of 2026-09-11 on the index.md / old master-note conflict between the two design docs.
 
-Enforces R-11 (frontmatter parses), R-12 (type is a registry value) and R-13 (required fields are present).
+Enforces R-07 (frontmatter parses, type is a registry value, required fields are present).
 """
 import pathlib
 import re

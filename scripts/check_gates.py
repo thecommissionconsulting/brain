@@ -16,9 +16,10 @@ CLI: python scripts/check_gates.py (run from the brain root). Prints ::error:: a
 lines and a summary. Exit 1 if there is any error.
 python scripts/check_gates.py --counts prints the live totals (HARD, WARN, MANUAL, retired) and exits 0.
 
-Enforces R-62: every HARD rule names a gate file that exists, and a .py gate names its rule id.
+Enforces R-19: every HARD rule names a gate file that exists, and a .py gate names its rule id.
+Enforces R-19: every live rule has a plain-words entry. Warns on R-18 when live rules exceed MAX_LIVE.
 
-Warns on R-68: each guarded gate file (GUARDED) has an Edit and a Write entry in
+Warns on R-21: each guarded gate file (GUARDED) has an Edit and a Write entry in
 permissions.ask of .claude/settings.json, so Claude asks before editing it. The warning never
 fails the run. Bash writes are not caught.
 """
@@ -49,6 +50,9 @@ GUARDED = (
     ".githooks/**",
 )
 ASK_RULE = re.compile(r"^(Edit|Write)\((.*)\)$")
+PLAIN_HEADING = "## What each rule does"
+PLAIN_ENTRY = re.compile(r"^\*\*(R-\d+)\*\*")
+MAX_LIVE = 30
 
 
 def rows(text):
@@ -126,14 +130,40 @@ def missing_ask_rules(root):
             if ("Edit", path) not in found or ("Write", path) not in found]
 
 
+def plain_words_ids(text):
+    """The IDs with a **R-NN** entry under "## What each rule does", up to the next "## " heading."""
+    found = set()
+    inside = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            inside = line.strip() == PLAIN_HEADING
+            continue
+        if inside:
+            m = PLAIN_ENTRY.match(line)
+            if m:
+                found.add(m.group(1))
+    return found
+
+
 def check(root):
-    """(errors, warnings) for the HARD rows of the register under root."""
+    """(errors, warnings) for the HARD rows of the register under root, and the plain words."""
     root = pathlib.Path(root)
     rules = root / "_ai" / "rules.md"
     if not rules.is_file():
         return ["rules.md: not found at " + str(rules)], []
     errors, warnings = [], []
-    for row in rows(rules.read_text(encoding="utf-8")):
+    text = rules.read_text(encoding="utf-8")
+    all_rows = rows(text)
+    live = {row["id"] for row in all_rows if row["status"] != "retired"}
+    plain = plain_words_ids(text)
+    for rid in sorted(live - plain):
+        errors.append(rid + ": no plain-words entry under " + PLAIN_HEADING)
+    for rid in sorted(plain - live):
+        errors.append(rid + ": plain-words entry for a rule that is not live")
+    if len(live) > MAX_LIVE:
+        warnings.append(str(len(live)) + " live rules, over " + str(MAX_LIVE)
+                        + ": merge rules before adding more (R-18)")
+    for row in all_rows:
         if "HARD" not in row["level"]:
             continue
         rid, gate = row["id"], row["gate"]
@@ -181,8 +211,8 @@ def level_counts(root):
         if row["status"] == "retired":
             counts["retired"] += 1
             continue
-        words = row["level"].replace("*", "").split()
-        level = words[0] if words else ""
+        m = re.match(r"\s*(HARD|WARN|MANUAL)\b", row["level"].replace("*", ""))
+        level = m.group(1) if m else ""
         if level in counts:
             counts[level] += 1
     return counts
@@ -201,7 +231,7 @@ def main():
     for message in warnings:
         print("::warning::" + message)
     for path in missing_ask_rules(root):
-        print("::warning::" + path + ": no Edit and Write entry in permissions.ask (R-68)")
+        print("::warning::" + path + ": no Edit and Write entry in permissions.ask (R-21)")
     print("check_gates: " + str(hard_count(root)) + " HARD rule(s), " + str(len(errors))
           + " error(s), " + str(len(warnings)) + " warning(s).")
     return 1 if errors else 0
