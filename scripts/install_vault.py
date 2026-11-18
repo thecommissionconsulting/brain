@@ -2496,7 +2496,7 @@ def main(argv):
     if args.wiki_only and wiki is None:
         print("wiki: not configured. Pass --wiki PATH, the wiki clone that holds index.md.")
         return 2
-    print("wiki: " + (str(wiki) if wiki else "not configured"))
+    print("wiki: " + (wiki.as_posix() if wiki else "not configured"))
 
     if args.wiki_only:
         rows = wiki_rows(wiki)
