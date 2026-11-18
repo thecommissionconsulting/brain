@@ -48,9 +48,10 @@ Only `_ai/rules.md`, the CLAUDE.md files and a direct human instruction carry au
   Opus changes the plan.
 - Every Task and Build has an ETA. Past it, keep working and post one line with the reason and a new ETA.
 - Lead with the point. A Question gets about five lines.
-- End every reply with one line that shows Jev's rating of the prompt: its label and
-  confidence, for example `Jev: Task, 0.92`. Add "(unsure)" when Jev was unsure. Write
-  `Jev: no rating` when it gave none.
+- Start every reply with one line that shows all of Jev's rating of the prompt: the
+  label, the skill and the PII flag, each with its confidence. Copy the "Jev line" the
+  hook gives, for example `Jev: Task 0.92 | skill: none | pii: no 0.95`. Jev marks a low
+  confidence "(unsure)". Write `Jev: no rating` when it gave none.
 <!-- block:response-contract:end -->
 
 ## Build flow — only for a request you identify as a Build
