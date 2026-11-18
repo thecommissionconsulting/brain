@@ -1,4 +1,4 @@
-"""Route a Build to a superpowers skill with TypeSafe's Jev model (R-52).
+"""Route a Build to a superpowers skill with TypeSafe's Jev model (R-27).
 
 At the start of a Build, Claude writes a short summary of the work and asks Jev which
 superpowers skill should start it. Jev answers with one skill from SKILLS and a
@@ -40,7 +40,7 @@ The Build route (`--text` or a file) asks the same pii question as the hook, and
 Exit codes: 0 routed, 2 bad input, no key, policy off or the PII scan is unavailable,
 3 the Jev call failed.
 
-Enforces R-56 for Build routing: only a short summary of the Build is sent, and only through jev_client.
+Enforces R-15 for Build routing: only a short summary of the Build is sent, and only through jev_client.
 """
 import argparse
 import json

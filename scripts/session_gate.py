@@ -13,7 +13,7 @@ replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s
 
 It also reports the median time of today's and yesterday's Jev calls from the decision
 log (§Limits), and marks it OVER above 4 s. It counts the Jev PII entries not yet reviewed
-(R-56), with the command that lists them.
+(R-15), with the command that lists them.
 
 Always exits 0. This informs, it never blocks a session.
 """
@@ -82,9 +82,9 @@ def jev_part(ms):
 
 
 def pii_part(count):
-    """The session-line part for new Jev PII entries (R-56), or None when there are none."""
+    """The session-line part for new Jev PII entries (R-15), or None when there are none."""
     if count > 0:
-        return f"pii {count} new (R-56): python scripts/jev_pii.py --list"
+        return f"pii {count} new (R-15): python scripts/jev_pii.py --list"
     return None
 
 
@@ -121,7 +121,7 @@ def main():
         size, limit = budget(wiki)
         if size is not None and limit:
             over = size > limit
-            parts.append(f"index.md {size}/{limit}" + (" OVER (R-10)" if over else ""))
+            parts.append(f"index.md {size}/{limit}" + (" OVER (R-06)" if over else ""))
 
     jev = jev_part(jev_median(JEV_LOG))
     if jev is not None:

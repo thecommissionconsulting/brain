@@ -30,7 +30,7 @@ Fail-open by design. If this script itself errors, the tool call proceeds: a
 crashed gate that silently bricks every read would get switched off within the
 hour, and a gate that is switched off protects nothing.
 
-Enforces R-56: `pii_gate.py` keeps bulk personal data from reads out of the prompt.
+Enforces R-15: `pii_gate.py` keeps bulk personal data from reads out of the prompt.
 """
 import json
 import pathlib

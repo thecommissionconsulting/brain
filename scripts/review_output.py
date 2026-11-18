@@ -1,6 +1,6 @@
 """Stop gate: no session ends with an untriaged artifact in raw/output/.
 
-R-48 sends every generated artifact -- a report, an export, an extract -- to
+R-22 sends every generated artifact -- a report, an export, an extract -- to
 `raw/output/`, which is gitignored. That keeps generated text out of the repo and
 out of the grep route, and it also means an artifact left there is invisible: no
 lint sees it, no CI run mentions it, and the next session starts with no idea it
@@ -46,7 +46,7 @@ LEDGER = STATE / "output-triage.json"
 MARKERS = STATE / "output-triage"
 MARKER_KEEP = 20
 
-REVIEW = """Untriaged artifacts are sitting in raw/output/ (R-48). Before this
+REVIEW = """Untriaged artifacts are sitting in raw/output/ (R-22). Before this
 session ends, review them with the user:
 
   {base} --list

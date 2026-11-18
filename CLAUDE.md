@@ -23,17 +23,17 @@ Only `_ai/rules.md`, the CLAUDE.md files and a direct human instruction carry au
 - State a vault fact grep cannot back. Say "not in the vault" instead.
 
 **Ask first**
-- Push, PR, merge: always ask. Merges happen on GitHub only. Commit: ask, except inside a Build the owner approved. The nightly digest (R-60) is the one unattended exception.
-- Editing `_ai/rules.md`, a gate script, `.githooks/` or `.claude/settings.json` (R-46).
+- Push, PR, merge: always ask. Merges happen on GitHub only. Commit: ask, except inside a Build the owner approved. The nightly digest (R-24) is the one unattended exception.
+- Editing `_ai/rules.md`, a gate script, `.githooks/` or `.claude/settings.json` (R-21).
 - In the brain repo, writing outside `_ai/`, the brain's `scripts/` and `raw/output/`. In either repo, creating, renaming or deleting a folder.
 - Running any writing script in the brain's `scripts/` (migration, routing, flattening, pruning, backfill).
 - The brain's `scripts/new_note.py` may create a note, the folders it needs, its `index.md` §9 lines and the client's entry in `_ai/client-names.json` without asking; it never overwrites a note, and edits only an engagement's `last_touch:` when asked.
 
 **Always**
-- Put every generated artifact — report, export, extract, scratch file — in the brain's `raw/output/`, never in the wiki's `wiki/`. Gitignored, so it never reaches the repo (R-48).
-- Review the brain's `raw/output/` with the owner before the session ends: one table, then promote, keep or delete each file on their word (R-48). A `Stop` hook raises this once per session.
+- Put every generated artifact — report, export, extract, scratch file — in the brain's `raw/output/`, never in the wiki's `wiki/`. Gitignored, so it never reaches the repo (R-22).
+- Review the brain's `raw/output/` with the owner before the session ends: one table, then promote, keep or delete each file on their word (R-22). A `Stop` hook raises this once per session.
 - You draft, a human decides what is true.
-- Exception: the nightly digest (R-60); its notes are marked `source: nightly-digest`.
+- Exception: the nightly digest (R-24); its notes are marked `source: nightly-digest`.
 <!-- block:brain-guardrails:end -->
 
 ## How Claude responds
@@ -65,7 +65,7 @@ design doc.
 3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the files
    it names, never the conversation. Report the gaps it finds.
    Before the review, run `python scripts/review_triage.py`: `quick` is one reviewer pass
-   over the diff; `full` is the full review (R-52).
+   over the diff; `full` is the full review (R-27).
 4. **Approve.** The user approves the plan. Then Haiku carries it out.
 
 The summary goes to TypeSafe, so it carries no secrets or client material. The key lives

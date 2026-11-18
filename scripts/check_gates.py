@@ -16,10 +16,10 @@ CLI: python scripts/check_gates.py (run from the brain root). Prints ::error:: a
 lines and a summary. Exit 1 if there is any error.
 python scripts/check_gates.py --counts prints the live totals (HARD, WARN, MANUAL, retired) and exits 0.
 
-Enforces R-62: every HARD rule names a gate file that exists, and a .py gate names its rule id.
-Enforces R-62: every live rule has a plain-words entry. Warns on R-41 when live rules exceed MAX_LIVE.
+Enforces R-19: every HARD rule names a gate file that exists, and a .py gate names its rule id.
+Enforces R-19: every live rule has a plain-words entry. Warns on R-18 when live rules exceed MAX_LIVE.
 
-Warns on R-46: each guarded gate file (GUARDED) has an Edit and a Write entry in
+Warns on R-21: each guarded gate file (GUARDED) has an Edit and a Write entry in
 permissions.ask of .claude/settings.json, so Claude asks before editing it. The warning never
 fails the run. Bash writes are not caught.
 """
@@ -162,7 +162,7 @@ def check(root):
         errors.append(rid + ": plain-words entry for a rule that is not live")
     if len(live) > MAX_LIVE:
         warnings.append(str(len(live)) + " live rules, over " + str(MAX_LIVE)
-                        + ": merge rules before adding more (R-41)")
+                        + ": merge rules before adding more (R-18)")
     for row in all_rows:
         if "HARD" not in row["level"]:
             continue
@@ -231,7 +231,7 @@ def main():
     for message in warnings:
         print("::warning::" + message)
     for path in missing_ask_rules(root):
-        print("::warning::" + path + ": no Edit and Write entry in permissions.ask (R-46)")
+        print("::warning::" + path + ": no Edit and Write entry in permissions.ask (R-21)")
     print("check_gates: " + str(hard_count(root)) + " HARD rule(s), " + str(len(errors))
           + " error(s), " + str(len(warnings)) + " warning(s).")
     return 1 if errors else 0

@@ -10,13 +10,13 @@ This module is the prevention half. It runs on the machine, before the object
 leaves it, and it is the gate for three rules the register records as unenforced
 or post-hoc:
 
-  R-30  secrets never in a note           was WARN, post-push   -> blocked at commit
-  R-30  raw/ assets/ .confluence-private  was .gitignore only   -> also blocked on `git add -f`
-  R-33  content-level exclusions          was BREACHED, no gate -> warns at commit
-  R-34  main changes by PR                was "cannot block"    -> blocked at commit and push
+  R-13  secrets never in a note           was WARN, post-push   -> blocked at commit
+  R-13  raw/ assets/ .confluence-private  was .gitignore only   -> also blocked on `git add -f`
+  R-14  content-level exclusions          was BREACHED, no gate -> warns at commit
+  R-16  main changes by PR                was "cannot block"    -> blocked at commit and push
 
 Severity is deliberate. A credential is a hard block: the false-positive cost is
-one `--no-verify`, the false-negative cost is a rotation and an audit. The R-33
+one `--no-verify`, the false-negative cost is a rotation and an audit. The R-14
 body patterns (rates, tenant GUIDs, prospect lists) are heuristics over prose and
 only warn. Blocking on those would train people to bypass the hook, which costs
 more than the warning saves.
@@ -69,7 +69,7 @@ def git(*args):
                           errors="replace").stdout
 
 
-# ---- R-30: zones that are never committed ----------------------------------
+# ---- R-13: zones that are never committed ----------------------------------
 # .gitignore already covers these, but `git add -f` walks straight past it, and
 # that is exactly how a 40 GB assets/ tree or an NDA export gets in by accident.
 # _ai/templates/presentation/assets/ is un-ignored on purpose (it is source, not
@@ -81,14 +81,14 @@ NESTED_GIT = re.compile(r"(^|/)\.git/")
 def check_paths(paths, where):
     for p in paths:
         if BLOCKED_PATH.search(p):
-            err(f"R-30  {where}: `{p}` is in a never-committed zone. "
+            err(f"R-13  {where}: `{p}` is in a never-committed zone. "
                 f"If this was `git add -f`, unstage it: git rm --cached '{p}'")
         if NESTED_GIT.search(p):
-            err(f"R-05  {where}: `{p}` is inside a nested git repo. "
+            err(f"R-03  {where}: `{p}` is inside a nested git repo. "
                 f"Never nest a repo in this vault.")
 
 
-# ---- R-30: credentials ------------------------------------------------------
+# ---- R-13: credentials ------------------------------------------------------
 # Every pattern needs an actual value, so a note that merely discusses API keys
 # (rules.md and setup.md both do) will not match. Escape hatch for a documented
 # example: append  # pragma: allowlist secret  to the line.
@@ -108,7 +108,7 @@ SECRETS = [
     ("credentials in a URL",  re.compile(r"://[^/\s:@'\"]+:[^/\s:@'\"]+@")),
 ]
 
-# ---- R-33: content-level exclusions, the register's one breached rule -------
+# ---- R-14: content-level exclusions, the register's one breached rule -------
 # Heuristics over prose. Warn only -- see the module docstring on severity.
 SENSITIVE = [
     ("charge-out or billable rate", re.compile(r"(?i)\b(billable|charge[\s-]?out|hourly)\s+rate\b")),
@@ -137,12 +137,12 @@ def scan_added_lines(diff_text, where):
             continue
         for name, pat in SECRETS:
             if pat.search(body):
-                err(f"R-30  {where}: possible {name} added in `{path}`. Credentials live in "
+                err(f"R-13  {where}: possible {name} added in `{path}`. Credentials live in "
                     f"the tool's own config, never in this repo. If it is a documented "
                     f"example, append  # pragma: allowlist secret")
         for name, pat in SENSITIVE:
             if pat.search(body):
-                warn(f"R-33  {where}: {name} in `{path}`. Check this belongs in the vault and "
+                warn(f"R-14  {where}: {name} in `{path}`. Check this belongs in the vault and "
                      f"not in the per-client repo.")
         found = EMAIL.findall(body)
         if found:
@@ -152,7 +152,7 @@ def scan_added_lines(diff_text, where):
     for path, addrs in emails_per_file.items():
         external = {a for a in addrs if not a.lower().endswith("@example.nz")}
         if len(external) >= 10:
-            warn(f"R-33  {where}: {len(external)} distinct external email addresses added in "
+            warn(f"R-14  {where}: {len(external)} distinct external email addresses added in "
                  f"`{path}`. A prospect or contact list belongs in the CRM, not the vault.")
 
 
@@ -167,11 +167,11 @@ def current_branch():
 def mode_pre_commit():
     branch = current_branch()
     if branch in PROTECTED and not ALLOW_MAIN:
-        err(f"R-34  `{branch}` changes go through a PR. Move this to a topic branch:\n"
+        err(f"R-16  `{branch}` changes go through a PR. Move this to a topic branch:\n"
             f"             git switch -c knowledge/<what>\n"
             f"           An administrative commit on main needs VAULT_ALLOW_MAIN=1.")
     if not BRANCH_OK.match(branch):
-        warn(f"R-34  branch `{branch}` is not a recognised topic branch. Expected knowledge/..., "
+        warn(f"R-16  branch `{branch}` is not a recognised topic branch. Expected knowledge/..., "
              f"client/..., internal/..., chore/... or migrate/... (vault-git.md section Model).")
     check_paths([p for p in git("diff", "--cached", "--name-only",
                                 "--diff-filter=ACMR").splitlines() if p], "staged")
@@ -184,7 +184,7 @@ def mode_pre_merge_commit():
     branch = current_branch()
     if branch in PROTECTED:
         if not ALLOW_MAIN:
-            err(f"R-34  a merge commit on `{branch}` needs a PR. Merge the topic branch on "
+            err(f"R-16  a merge commit on `{branch}` needs a PR. Merge the topic branch on "
                 f"GitHub, or merge it on a topic branch.\n"
                 f"           An administrative merge on main needs VAULT_ALLOW_MAIN=1.")
         else:
@@ -199,7 +199,7 @@ def mode_pre_merge_commit():
 def mode_commit_msg(path):
     msg = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
     if re.search(r"^vault backup:", msg, re.M) and current_branch() in PROTECTED:
-        err("R-34  Obsidian `vault backup:` commits never land on main. Use the `capture` branch.")
+        err("R-16  Obsidian `vault backup:` commits never land on main. Use the `capture` branch.")
 
 
 def mode_range(base, head):
@@ -219,17 +219,17 @@ def mode_pre_push():
 
         if local_sha == ZERO:
             if target in PROTECTED and not ALLOW_MAIN:
-                err(f"R-34  refusing to delete remote `{target}`.")
+                err(f"R-16  refusing to delete remote `{target}`.")
             continue
 
         if target in PROTECTED and not ALLOW_MAIN:
-            err(f"R-34  refusing to push straight to `{target}`. Push the topic branch and "
+            err(f"R-16  refusing to push straight to `{target}`. Push the topic branch and "
                 f"open a PR.\n           An administrative push needs VAULT_ALLOW_MAIN=1.")
             # A force-push additionally rewrites what others have already pulled.
             if remote_sha != ZERO and subprocess.run(
                     ["git", "merge-base", "--is-ancestor", remote_sha, local_sha],
                     capture_output=True).returncode != 0:
-                err(f"R-34  `{target}` would be force-pushed -- this rewrites published history.")
+                err(f"R-16  `{target}` would be force-pushed -- this rewrites published history.")
 
         # Re-scan content: pre-commit may have been skipped with --no-verify.
         if remote_sha != ZERO:

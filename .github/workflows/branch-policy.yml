@@ -97,7 +97,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Guard the diff (R-30 secrets and zones, R-33 sensitive content)
+      - name: Guard the diff (R-13 secrets and zones, R-14 sensitive content)
         run: |
           python scripts/hooks_guard.py range \
             "${{ github.event.pull_request.base.sha }}" \

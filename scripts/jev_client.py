@@ -13,7 +13,7 @@ send() enforces a total deadline. The "never the text itself" rule applies to lo
 which logs a SHA-256 of the sent text. log_pii stores the masked text that was sent, in
 _local/jev-pii/, for a prompt Jev flags as still holding personal data. Logging never raises.
 
-Enforces R-56 for every call to Jev: the policy mode decides, and the PII sweep masks the text first and fails closed.
+Enforces R-15 for every call to Jev: the policy mode decides, and the PII sweep masks the text first and fails closed.
 """
 import datetime
 import hashlib
@@ -175,7 +175,7 @@ def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR, ms=None):
 
 def log_pii(use, masked_text, tags, confidence, log_dir=PII_DIR):
     """Append one JSON line to log_dir/YYYY-MM-DD.jsonl for a prompt Jev flagged as still
-    holding personal data (R-56). The line keeps the masked text: the owner chose that.
+    holding personal data (R-15). The line keeps the masked text: the owner chose that.
     Never raises.
     """
     try:

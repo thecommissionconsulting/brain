@@ -3,7 +3,7 @@
 `_ai/vault-install-test-plan.md` lists the cases that prove a workstation is set
 up. Most of them are a command and an expected answer, so this runs every one a
 script can run without changing the machine, and writes the result to
-`raw/output/install-report-<timestamp>.md` (R-48: gitignored, never committed).
+`raw/output/install-report-<timestamp>.md` (R-22: gitignored, never committed).
 
     python scripts/verify_install.py
 
@@ -272,7 +272,7 @@ MANUAL = (
     ("13", "Ask Claude to write any file to `raw/output/`, then end the turn. The triage "
            "review opens once."),
     ("14", "End a second turn without triaging. The gate stays silent."),
-    ("credentials", "Put credentials in each tool's own config, never in this repo (R-30)."),
+    ("credentials", "Put credentials in each tool's own config, never in this repo (R-13)."),
 )
 
 

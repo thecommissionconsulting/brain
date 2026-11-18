@@ -15,7 +15,7 @@ CLI: python scripts/sync_rules.py --check | --write [--no-home]
 --check prints ::error:: lines for problems and plain lines for notes, and exits 1 on any
 problem. CI uses --check --no-home. --write rewrites drifted blocks, then runs the check.
 
-Enforces R-62: session text is written once, in _ai/rules.md; every copy matches.
+Enforces R-19: session text is written once, in _ai/rules.md; every copy matches.
 """
 import argparse
 import os
@@ -174,7 +174,7 @@ def write(brain, wiki, home, wheres=WHERES):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Sync and check the session-text blocks (R-62).")
+    parser = argparse.ArgumentParser(description="Sync and check the session-text blocks (R-19).")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="report drift; exit 1 on a problem")
     mode.add_argument("--write", action="store_true", help="rewrite drifted blocks, then check")
