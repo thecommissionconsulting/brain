@@ -17,6 +17,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,22 @@ def case(name, got, want):
     FAILS[0] += not ok
     print("  " + ("ok  " if ok else "FAIL") + "  " + name.ljust(46) +
           "want " + str(want)[:28].ljust(28) + " got " + str(got)[:28])
+
+
+def want_read(posix_path, tail):
+    """The Read rule Claude Code matches: `//c/x` for a Windows drive path, `//x` for POSIX `/x`."""
+    if re.match(r"^[A-Za-z]:/", posix_path):
+        return "Read(//" + posix_path[0].lower() + posix_path[2:] + "/" + tail + ")"
+    return "Read(/" + posix_path + "/" + tail + ")"
+
+
+def want_import(brain):
+    """`@~/...` when the brain sits under home (a Windows temp dir does), else the absolute path."""
+    target = (brain / "CLAUDE.md").resolve()
+    try:
+        return "@~/" + target.relative_to(pathlib.Path.home().resolve()).as_posix()
+    except ValueError:
+        return "@" + target.as_posix()
 
 
 def home(tmp, settings=None):
@@ -104,9 +121,9 @@ def wiki_cases():
             case("apply exits 0", code, 0)
             cfg = json.loads((brain / "_local" / "brain.json").read_text(encoding="utf-8"))
             case("step 1 records the wiki path", cfg["wiki"], wiki_p)
-            case("step 2 imports the brain CLAUDE.md by absolute path",
+            case("step 2 imports the brain CLAUDE.md by its home-relative or absolute path",
                  (wiki / "_local" / "brain.md").read_text(encoding="utf-8"),
-                 "@" + (brain / "CLAUDE.md").as_posix() + "\n")
+                 want_import(brain) + "\n")
 
             wl_path = wiki / ".claude" / "settings.local.json"
             bl_path = brain / ".claude" / "settings.local.json"
@@ -131,7 +148,7 @@ def wiki_cases():
                  bl["permissions"]["additionalDirectories"], [wiki_p])
             case("step 4 makes the Read rules absolute, drops the others",
                  bl["permissions"]["deny"],
-                 ["Read(/" + wiki_p + "/raw/**)", "Read(/" + wiki_p + "/_local/**)"])
+                 [want_read(wiki_p, "raw/**"), want_read(wiki_p, "_local/**")])
 
             def git_out(*args):
                 return subprocess.run(["git", "-C", str(wiki)] + list(args),
@@ -488,7 +505,7 @@ def stale_cases():
             case("the old drive-form deny rules are replaced, the owner's rule stays",
                  bl["permissions"]["deny"],
                  ["Read(//home/someone/private/**)",
-                  "Read(/" + wiki_p + "/raw/**)", "Read(/" + wiki_p + "/_local/**)"])
+                  want_read(wiki_p, "raw/**"), want_read(wiki_p, "_local/**")])
             case("the pointer is rewritten to the new wiki",
                  json.loads((brain / "_local" / "brain.json").read_text(encoding="utf-8"))["wiki"],
                  wiki_p)
@@ -1009,8 +1026,11 @@ def installer_wiring_cases():
             case("jev_hook_applied: command starts with the quoted interpreter",
                  jev[0].startswith(cmd_start), True)
             link = claude / "scripts" / "jev_route.py"
+            # A symlink where the OS allows one; on Windows without that right, the launcher.
             case("jev_hook_applied: the script resolves to the brain copy",
-                 link.resolve() == target.resolve(), True)
+                 link.resolve() == target.resolve()
+                 or (not link.is_symlink() and iv.JEV_LAUNCHER_MARK in link.read_text(encoding="utf-8")
+                     and target.as_posix() in link.read_text(encoding="utf-8")), True)
             case("jev_hook_replaces_usr_bin: the old unquoted python3 entry is gone",
                  '/usr/bin/python3 "$HOME/.claude/scripts/jev_route.py" --hook' in cmds, False)
             case("jev_hook_replaces_usr_bin: the other hook is kept", "echo other" in cmds, True)
