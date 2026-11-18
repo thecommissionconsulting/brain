@@ -547,7 +547,7 @@ def main():
     case("run_hook: pii yes logs the masked text once",
          PII_LOGGED, [("prompt", "Email [PII:email address]", ["email address"], 0.7)])
 
-    # --- run_hook: the timing record (R-67) ---
+    # --- run_hook: the timing record (§Limits) ---
     timed_dir = pathlib.Path(tempfile.mkdtemp(prefix="jev-route-ms-"))
 
     def timed_log(use, sent_text, answers, cut, log_dir=None, ms=None):

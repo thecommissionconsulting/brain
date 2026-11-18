@@ -1,7 +1,7 @@
 """Review the Jev PII "yes" log: list the new entries, then mark them reviewed.
 
 jev_client.log_pii writes one JSON line per prompt that Jev says still holds personal data
-after masking (R-65). The lines sit in `_local/jev-pii/YYYY-MM-DD.jsonl`, and each line keeps
+after masking (R-56). The lines sit in `_local/jev-pii/YYYY-MM-DD.jsonl`, and each line keeps
 the masked text, so the folder is private and never leaves the machine.
 
 An entry is new until its key, "<time> <sha256>", is a line in `.reviewed` in the same
@@ -13,7 +13,7 @@ Modes:
   --list    Print the new entries, oldest first: time, confidence, tags and masked text.
   --done    Mark every current new entry reviewed. Prints how many it marked.
 
-Enforces R-65: lists the Jev PII "yes" entries for Opus to draft a sweep pattern; the owner approves it.
+Enforces R-56: lists the Jev PII "yes" entries for Opus to draft a sweep pattern; the owner approves it.
 """
 import argparse
 import json
@@ -80,7 +80,7 @@ def mark_reviewed(log_dir=PII_DIR):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Review the Jev PII yes log (R-65).")
+    parser = argparse.ArgumentParser(description="Review the Jev PII yes log (R-56).")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--list", action="store_true", help="print the new entries")
     mode.add_argument("--done", action="store_true", help="mark the new entries reviewed")

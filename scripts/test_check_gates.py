@@ -54,7 +54,7 @@ def main():
     print("register parsing")
     real = cg.rows((ROOT / "_ai" / "rules.md").read_text(encoding="utf-8"))
     hard = [r for r in real if "HARD" in r["level"]]
-    case("the real register has at least 19 HARD rows", len(hard) >= 19, True)
+    case("the real register has at least 10 HARD rows", len(hard) >= 10, True)
     case("a register row gives id, gate and level", real[0]["id"].startswith("R-"), True)
     case("a register row gives its gate cell", isinstance(real[0]["gate"], str), True)
 
@@ -147,6 +147,13 @@ def main():
         brain = make_brain(tmp, [reg("R-206", "**HARD** (local)", "`d.py`")], {})
         case("counts_local_suffix: '**HARD** (local)' counts as HARD",
              cg.level_counts(brain)["HARD"], 1)
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = make_brain(tmp, [reg("R-207", "HARD; WARN for x", "`e.py`"),
+                                 reg("R-208", "MANUAL; WARN above 30", "—")], {})
+        counts = cg.level_counts(brain)
+        case("counts_semicolon: 'HARD; WARN for x' counts as HARD", counts["HARD"], 1)
+        case("counts_semicolon: 'MANUAL; WARN above 30' counts as MANUAL", counts["MANUAL"], 1)
+        case("counts_semicolon: nothing counted as WARN", counts["WARN"], 0)
 
     print("ask rules for guarded files")
 

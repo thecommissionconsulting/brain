@@ -12,8 +12,8 @@ replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s
 `check_links.py` 2.1s) stay in CI; they are too slow to pay for on every session.
 
 It also reports the median time of today's and yesterday's Jev calls from the decision
-log (R-67), and marks it OVER above 4 s. It counts the Jev PII entries not yet reviewed
-(R-65), with the command that lists them.
+log (§Limits), and marks it OVER above 4 s. It counts the Jev PII entries not yet reviewed
+(R-56), with the command that lists them.
 
 Always exits 0. This informs, it never blocks a session.
 """
@@ -31,7 +31,7 @@ import wiki_root  # noqa: E402
 BRAIN = wiki_root.BRAIN
 SCRIPTS = BRAIN / "scripts"
 JEV_LOG = BRAIN / "_local" / "jev-log"
-JEV_LIMIT_MS = 4000  # R-67: a per-prompt hook finishes within 4 s in total
+JEV_LIMIT_MS = 4000  # §Limits: a per-prompt hook finishes within 4 s in total
 
 
 def budget(wiki):
@@ -77,14 +77,14 @@ def jev_part(ms):
     if ms is None:
         return None
     if ms > JEV_LIMIT_MS:
-        return f"jev OVER {ms} ms (R-67)"
+        return f"jev OVER {ms} ms (limit 4 s)"
     return f"jev {ms} ms"
 
 
 def pii_part(count):
-    """The session-line part for new Jev PII entries (R-65), or None when there are none."""
+    """The session-line part for new Jev PII entries (R-56), or None when there are none."""
     if count > 0:
-        return f"pii {count} new (R-65): python scripts/jev_pii.py --list"
+        return f"pii {count} new (R-56): python scripts/jev_pii.py --list"
     return None
 
 

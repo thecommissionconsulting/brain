@@ -80,10 +80,10 @@ def main():
     check("jev line: None gives no part", sg.jev_part(None) is None, fails)
     check("jev line: 200 ms", sg.jev_part(200) == "jev 200 ms", fails)
     check("jev line: 4000 ms is not over", sg.jev_part(4000) == "jev 4000 ms", fails)
-    check("jev line: 4001 ms is over (R-67)", sg.jev_part(4001) == "jev OVER 4001 ms (R-67)", fails)
+    check("jev line: 4001 ms is over (limit 4 s)", sg.jev_part(4001) == "jev OVER 4001 ms (limit 4 s)", fails)
 
     print("pii line")
-    check("pii line: 2 new", sg.pii_part(2) == "pii 2 new (R-65): python scripts/jev_pii.py --list",
+    check("pii line: 2 new", sg.pii_part(2) == "pii 2 new (R-56): python scripts/jev_pii.py --list",
           fails)
     check("pii line: 0 new gives no part", sg.pii_part(0) is None, fails)
 

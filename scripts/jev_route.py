@@ -1,4 +1,4 @@
-"""Route a Build to a superpowers skill with TypeSafe's Jev model (R-55).
+"""Route a Build to a superpowers skill with TypeSafe's Jev model (R-52).
 
 At the start of a Build, Claude writes a short summary of the work and asks Jev which
 superpowers skill should start it. Jev answers with one skill from SKILLS and a

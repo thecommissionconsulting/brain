@@ -145,7 +145,7 @@ def send(payload, env, timeout=4, call=None):
 def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR, ms=None):
     """Append one JSON line to log_dir/YYYY-MM-DD.jsonl. Never raises; never stores the text.
 
-    ms, when given, is the wall time of the Jev call in milliseconds (R-67).
+    ms, when given, is the wall time of the Jev call in milliseconds (§Limits).
     """
     try:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -175,7 +175,7 @@ def log_decision(use, sent_text, answers, cut, log_dir=LOG_DIR, ms=None):
 
 def log_pii(use, masked_text, tags, confidence, log_dir=PII_DIR):
     """Append one JSON line to log_dir/YYYY-MM-DD.jsonl for a prompt Jev flagged as still
-    holding personal data (R-65). The line keeps the masked text: the owner chose that.
+    holding personal data (R-56). The line keeps the masked text: the owner chose that.
     Never raises.
     """
     try:

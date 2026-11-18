@@ -251,7 +251,7 @@ def main() -> int:
     # row in its column; on 271 leaves with paths up to 170 chars that had grown this
     # section to 87 KB, 69% of it spaces, and it silently re-pads whenever someone
     # opens index.md. A list has no columns to pad, so the saving cannot drift back.
-    # The hub is the folder name except where R-02 forced a prefixed basename, so
+    # The hub is the folder name except where R-01 forced a prefixed basename, so
     # naming it per row repeated the same string three times for 258 of 271 rows.
     rows, odd = [], []
     for leaf in leaves:
@@ -297,7 +297,7 @@ def main() -> int:
         "## 9. Vault map", "",
         f"Every leaf folder under `wiki/` and `_ai/`, one per line. {len(leaves):,} leaves.", "",
         "A folder's hub note is named after the folder, so `wiki/clients/aa-life/` means",
-        "[[aa-life]]. The few where R-02 forced a prefixed basename are listed at the end.", "",
+        "[[aa-life]]. The few where R-01 forced a prefixed basename are listed at the end.", "",
         "Written as a list, not a table, on purpose: Obsidian's table formatter pads every",
         "cell to the widest row in the column, which had grown this section to 87 KB of",
         "which 69% was spaces. A list has no columns to pad, so it cannot drift back.", "",

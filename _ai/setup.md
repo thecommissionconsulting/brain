@@ -181,7 +181,7 @@ installed. The credential-file `Read` deny rules came from `central` and are no 
 added on a new machine; rules an earlier install wrote stay in place.
 
 This vault's own `.claude/settings.json` enables the same plugins. It does not declare
-the `skills` marketplace, because that is a folder whose path differs per machine (R-31);
+the `skills` marketplace, because that is a folder whose path differs per machine (R-30);
 the installer, or `claude plugin marketplace add`, registers it in your global settings.
 
 `skills` is this vault's own `marketplace/` folder, so a clone carries it and no second

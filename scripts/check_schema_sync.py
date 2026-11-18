@@ -9,7 +9,7 @@ This makes the drift fail CI instead.
 Reads the checker with `ast` rather than importing it — importing would run the lint
 and call sys.exit. Nothing here executes vault code.
 
-Enforces R-14: the schema table in _ai/rules.md matches the checker.
+Enforces R-11: the schema table in _ai/rules.md matches the checker.
 """
 import ast
 import pathlib

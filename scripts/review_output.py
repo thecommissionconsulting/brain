@@ -46,7 +46,7 @@ LEDGER = STATE / "output-triage.json"
 MARKERS = STATE / "output-triage"
 MARKER_KEEP = 20
 
-REVIEW = """Untriaged artifacts are sitting in raw/output/ (R-49). Before this
+REVIEW = """Untriaged artifacts are sitting in raw/output/ (R-48). Before this
 session ends, review them with the user:
 
   {base} --list

@@ -7,11 +7,11 @@ makes them detection, not prevention: by the time TruffleHog annotates a run the
 credential is already on GitHub, and the only fix left is rotation.
 
 This module is the prevention half. It runs on the machine, before the object
-leaves it, and it is the gate for four rules the register records as unenforced
+leaves it, and it is the gate for three rules the register records as unenforced
 or post-hoc:
 
   R-30  secrets never in a note           was WARN, post-push   -> blocked at commit
-  R-32  raw/ assets/ .confluence-private  was .gitignore only   -> also blocked on `git add -f`
+  R-30  raw/ assets/ .confluence-private  was .gitignore only   -> also blocked on `git add -f`
   R-33  content-level exclusions          was BREACHED, no gate -> warns at commit
   R-34  main changes by PR                was "cannot block"    -> blocked at commit and push
 
@@ -69,7 +69,7 @@ def git(*args):
                           errors="replace").stdout
 
 
-# ---- R-32: zones that are never committed ----------------------------------
+# ---- R-30: zones that are never committed ----------------------------------
 # .gitignore already covers these, but `git add -f` walks straight past it, and
 # that is exactly how a 40 GB assets/ tree or an NDA export gets in by accident.
 # _ai/templates/presentation/assets/ is un-ignored on purpose (it is source, not
@@ -81,10 +81,10 @@ NESTED_GIT = re.compile(r"(^|/)\.git/")
 def check_paths(paths, where):
     for p in paths:
         if BLOCKED_PATH.search(p):
-            err(f"R-32  {where}: `{p}` is in a never-committed zone. "
+            err(f"R-30  {where}: `{p}` is in a never-committed zone. "
                 f"If this was `git add -f`, unstage it: git rm --cached '{p}'")
         if NESTED_GIT.search(p):
-            err(f"R-32  {where}: `{p}` is inside a nested git repo. "
+            err(f"R-30  {where}: `{p}` is inside a nested git repo. "
                 f"Never nest a repo in this vault.")
 
 
@@ -171,7 +171,7 @@ def mode_pre_commit():
             f"             git switch -c knowledge/<what>\n"
             f"           An administrative commit on main needs VAULT_ALLOW_MAIN=1.")
     if not BRANCH_OK.match(branch):
-        warn(f"R-37  branch `{branch}` is not a recognised topic branch. Expected knowledge/..., "
+        warn(f"R-34  branch `{branch}` is not a recognised topic branch. Expected knowledge/..., "
              f"client/..., internal/..., chore/... or migrate/... (vault-git.md section Model).")
     check_paths([p for p in git("diff", "--cached", "--name-only",
                                 "--diff-filter=ACMR").splitlines() if p], "staged")
@@ -199,7 +199,7 @@ def mode_pre_merge_commit():
 def mode_commit_msg(path):
     msg = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
     if re.search(r"^vault backup:", msg, re.M) and current_branch() in PROTECTED:
-        err("R-35  Obsidian `vault backup:` commits never land on main. Use the `capture` branch.")
+        err("R-34  Obsidian `vault backup:` commits never land on main. Use the `capture` branch.")
 
 
 def mode_range(base, head):

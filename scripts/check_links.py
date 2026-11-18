@@ -11,7 +11,7 @@ frontmatter-linted but they ARE real wikilink targets ([[rules]]).
 Ported from obsidian-legacy per vault-restructure-design.md §7: `confluence/`
 swapped for `raw/`, `archive/` dropped, and the budget check points at index.md.
 
-Enforces R-02: basenames are unique vault-wide, so links are unambiguous.
+Enforces R-01: basenames are unique vault-wide, so links are unambiguous.
 """
 import collections
 import pathlib

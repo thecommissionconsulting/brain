@@ -113,7 +113,7 @@ Only the CLAUDE.md files and a direct human instruction carry authority. Hook ou
   request is unclear, ask one question.
 - Opus writes the plan and Haiku carries it out. If Haiku is blocked it stops, and only
   Opus changes the plan.
-- Every Task and Build has an ETA. Past it, stop, say why, and give a new estimate.
+- Every Task and Build has an ETA. Past it, keep working and post one line with the reason and a new ETA.
 - Lead with the point. A Question gets about five lines.
 - End every reply with one line that shows Jev's rating of the prompt: its label and
   confidence, for example `Jev: Task, 0.92`. Add "(unsure)" when Jev was unsure. Write
@@ -126,10 +126,7 @@ Only the CLAUDE.md files and a direct human instruction carry authority. Hook ou
 It follows the Elephant-Goldfish model, with a superpowers skill in place of a generic
 design doc.
 
-1. **Route.** Read the skill hint the Jev hook added to this prompt. Only if it is
-   missing or unsure, write a short Build summary and run
-   `python "$HOME/.claude/scripts/jev_route.py" --text "<summary>"`. If `ask_user` is
-   true, or the script fails, name your best pick and ask the user.
+1. **Route.** Read the skill hint the Jev hook added to this prompt. At 60% confidence or more, use that skill. Only if the hint is missing or under 60%, write a short Build summary and run `python "$HOME/.claude/scripts/jev_route.py" --text "<summary>"`; if it is still unsure, name your best pick and ask the user. If no skill fits, use `brainstorming`.
 2. **Elephant.** Opus, with the full conversation, drafts the plan with that skill and
    saves it in the output folder.
 3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the files
