@@ -31,12 +31,20 @@ def reg(rule_id, level, gate, status="ok"):
     return "| %s | Test | A rule | §Test | %s | %s | %s |" % (rule_id, gate, level, status)
 
 
-def make_brain(base, rows, files):
-    """A temp brain: _ai/rules.md from the rows, and each file from the mapping."""
+def make_brain(base, rows, files, plain=None):
+    """A temp brain: _ai/rules.md from the rows, and each file from the mapping.
+
+    The "What each rule does" section gets an entry for each live row, unless plain
+    gives the IDs to write instead.
+    """
     brain = pathlib.Path(base)
     (brain / "_ai").mkdir(parents=True, exist_ok=True)
+    if plain is None:
+        plain = [r.split("|")[1].strip() for r in rows if r.split("|")[7].strip() != "retired"]
+    entries = "\n\n".join("**%s**\nPlain words for %s." % (pid, pid) for pid in plain)
     text = "# Rules\n\n| ID | Area | Rule | Written in | Enforced by | Level | Status |\n" \
-           "|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n"
+           "|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n" \
+           "\n## What each rule does\n\n" + entries + "\n\n## Limits\n\nNone.\n"
     (brain / "_ai" / "rules.md").write_text(text, encoding="utf-8")
     for path, body in files.items():
         target = brain / path
@@ -154,6 +162,42 @@ def main():
         case("counts_semicolon: 'HARD; WARN for x' counts as HARD", counts["HARD"], 1)
         case("counts_semicolon: 'MANUAL; WARN above 30' counts as MANUAL", counts["MANUAL"], 1)
         case("counts_semicolon: nothing counted as WARN", counts["WARN"], 0)
+
+    print("plain words")
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [reg("R-301", "WARN", "—"), reg("R-302", "WARN", "—")]
+        brain = make_brain(tmp, rows, {}, plain=["R-301"])
+        errors, _ = cg.check(brain)
+        case("a live rule with no plain-words entry is one error",
+             len(errors) == 1 and errors[0].startswith("R-302"), True)
+        proc = run_cli(brain)
+        case("the CLI exits 1 on a missing plain-words entry", proc.returncode, 1)
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = make_brain(tmp, [reg("R-303", "WARN", "—")], {}, plain=["R-303", "R-399"])
+        errors, _ = cg.check(brain)
+        case("a plain-words entry with no live rule is one error",
+             len(errors) == 1 and errors[0].startswith("R-399"), True)
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = make_brain(tmp, [reg("R-304", "WARN", "—", status="retired")], {}, plain=[])
+        errors, _ = cg.check(brain)
+        case("a retired rule needs no plain-words entry", errors, [])
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [reg("R-%d" % (400 + i), "WARN", "—") for i in range(31)]
+        brain = make_brain(tmp, rows, {})
+        errors, warnings = cg.check(brain)
+        case("31 live rows give one warning", len(warnings), 1)
+        case("the 31-row warning names merge", any("merge" in w for w in warnings), True)
+        case("the 31-row warning is not an error", errors, [])
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [reg("R-%d" % (500 + i), "WARN", "—") for i in range(30)]
+        brain = make_brain(tmp, rows, {})
+        _, warnings = cg.check(brain)
+        case("30 live rows give no warning", warnings, [])
+    with tempfile.TemporaryDirectory() as tmp:
+        brain = make_brain(tmp, [reg("R-305", "WARN", "—")], {})
+        case("plain_words_ids reads only the section",
+             cg.plain_words_ids((brain / "_ai" / "rules.md").read_text(encoding="utf-8")),
+             {"R-305"})
 
     print("ask rules for guarded files")
 
