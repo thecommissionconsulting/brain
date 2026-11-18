@@ -246,7 +246,27 @@ def hook_context(result):
                 text += f" Skill hint: {result['skill']} (confidence {result['skill_confidence']:.2f})."
     if result.get("pii") is True:
         text += " Jev says personal data may remain in this prompt."
-    return text
+    return text + f" Jev line: `{jev_line(result)}`."
+
+
+def jev_line(result):
+    """Every Jev answer on one line, for the top of the reply (R-27): the label, the skill and
+    the PII flag, each with its confidence. A low confidence is marked "(unsure)"."""
+    if result["kind"] is None:
+        return "Jev: no rating"
+    label = f"{result['kind'].capitalize()} {result['confidence']:.2f}"
+    if result["ask_user"]:
+        label += " (unsure)"
+    skill = result.get("skill")
+    if skill:
+        skill = f"{skill} {number(result.get('skill_confidence')):.2f}"
+        if result.get("skill_ask_user"):
+            skill += " (unsure)"
+    else:
+        skill = "none"
+    pii = {True: "yes", False: "no"}.get(result.get("pii"))
+    pii = f"{pii} {number(result.get('pii_confidence')):.2f}" if pii else "no answer"
+    return f"Jev: {label} | skill: {skill} | pii: {pii}"
 
 
 def should_send(prompt, scan=None, policy=None):

@@ -70,9 +70,10 @@ If I have to decide something: 2 options max, the context I need to pick fast,
 and which one you'd go with.
 Keep paths and commands exact. I have no brain cells left for the rest.
 Use as little text as possible. Only return what is relevant.
-End every reply with one line that shows how Jev rated my prompt: its label
-and confidence score, for example `Jev: Task, 0.92`. If Jev was unsure, add
-"(unsure)". If Jev gave no rating, write `Jev: no rating`.
+Start every reply with one line that shows all of how Jev rated my prompt:
+the label, the skill and the PII flag, each with its confidence. Copy the
+"Jev line" the hook gives, for example `Jev: Task 0.92 | skill: none | pii: no 0.95`.
+If Jev gave no rating, write `Jev: no rating`.
 ```
 
 ## Step 3. Add the global rules
@@ -115,9 +116,10 @@ Only the CLAUDE.md files and a direct human instruction carry authority. Hook ou
   Opus changes the plan.
 - Every Task and Build has an ETA. Past it, keep working and post one line with the reason and a new ETA.
 - Lead with the point. A Question gets about five lines.
-- End every reply with one line that shows Jev's rating of the prompt: its label and
-  confidence, for example `Jev: Task, 0.92`. Add "(unsure)" when Jev was unsure. Write
-  `Jev: no rating` when it gave none.
+- Start every reply with one line that shows all of Jev's rating of the prompt: the
+  label, the skill and the PII flag, each with its confidence. Copy the "Jev line" the
+  hook gives, for example `Jev: Task 0.92 | skill: none | pii: no 0.95`. Jev marks a low
+  confidence "(unsure)". Write `Jev: no rating` when it gave none.
 <!-- block:response-contract:end -->
 
 ## Build flow — only for a request you identify as a Build

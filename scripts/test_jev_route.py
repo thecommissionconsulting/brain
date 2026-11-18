@@ -387,41 +387,48 @@ def main():
     # --- hook_context ---
     case("hook context: a confident build",
          jr.hook_context({"kind": "build", "confidence": 0.82, "ask_user": False}),
-         "Jev labels this prompt a Build (confidence 0.82). Treat it as a hint; you decide.")
+         "Jev labels this prompt a Build (confidence 0.82). Treat it as a hint; you decide. "
+         "Jev line: `Jev: Build 0.82 | skill: none | pii: no answer`.")
     case("hook context: an unsure task names its best guess",
          jr.hook_context({"kind": "task", "confidence": 0.41, "ask_user": True}),
-         "Jev is unsure about this prompt (best guess: Task, confidence 0.41). Classify it yourself.")
+         "Jev is unsure about this prompt (best guess: Task, confidence 0.41). Classify it yourself. "
+         "Jev line: `Jev: Task 0.41 (unsure) | skill: none | pii: no answer`.")
     case("hook context: no usable label",
          jr.hook_context({"kind": None, "confidence": 0.9, "ask_user": True}),
-         "Jev gave no usable label for this prompt. Classify it yourself.")
+         "Jev gave no usable label for this prompt. Classify it yourself. Jev line: `Jev: no rating`.")
     case("hook context: a build with a confident skill names it",
          jr.hook_context({"kind": "build", "confidence": 0.9, "ask_user": False,
                           "skill": "writing-plans", "skill_confidence": 0.8, "skill_ask_user": False,
                           "pii": False, "pii_confidence": 0.9}),
          "Jev labels this prompt a Build (confidence 0.90). Treat it as a hint; you decide. "
-         "Skill hint: writing-plans (confidence 0.80).")
+         "Skill hint: writing-plans (confidence 0.80). "
+         "Jev line: `Jev: Build 0.90 | skill: writing-plans 0.80 | pii: no 0.90`.")
     case("hook context: a task gets no skill hint",
          jr.hook_context({"kind": "task", "confidence": 0.9, "ask_user": False,
                           "skill": "writing-plans", "skill_confidence": 0.8, "skill_ask_user": False,
                           "pii": False}),
-         "Jev labels this prompt a Task (confidence 0.90). Treat it as a hint; you decide.")
+         "Jev labels this prompt a Task (confidence 0.90). Treat it as a hint; you decide. "
+         "Jev line: `Jev: Task 0.90 | skill: writing-plans 0.80 | pii: no 0.00`.")
     case("hook context: an unsure skill is named unsure",
          jr.hook_context({"kind": "build", "confidence": 0.9, "ask_user": False,
                           "skill": "writing-plans", "skill_confidence": 0.3, "skill_ask_user": True,
                           "pii": False}),
          "Jev labels this prompt a Build (confidence 0.90). Treat it as a hint; you decide. "
-         "Skill hint unsure: writing-plans.")
+         "Skill hint unsure: writing-plans. "
+         "Jev line: `Jev: Build 0.90 | skill: writing-plans 0.30 (unsure) | pii: no 0.00`.")
     case("hook context: an unsure build with no skill says none",
          jr.hook_context({"kind": "build", "confidence": 0.9, "ask_user": False,
                           "skill": None, "skill_confidence": 0.0, "skill_ask_user": True,
                           "pii": False}),
          "Jev labels this prompt a Build (confidence 0.90). Treat it as a hint; you decide. "
-         "Skill hint unsure: none.")
+         "Skill hint unsure: none. "
+         "Jev line: `Jev: Build 0.90 | skill: none | pii: no 0.00`.")
     case("hook context: pii yes says personal data may remain",
          jr.hook_context({"kind": "question", "confidence": 0.9, "ask_user": False,
                           "pii": True, "pii_confidence": 0.7}),
          "Jev labels this prompt a Question (confidence 0.90). Treat it as a hint; you decide. "
-         "Jev says personal data may remain in this prompt.")
+         "Jev says personal data may remain in this prompt. "
+         "Jev line: `Jev: Question 0.90 | skill: none | pii: yes 0.70`.")
 
     # --- should_send: (send, reason, masked, tags) ---
     case("should_send: empty prompt", jr.should_send("", scan=lambda t: [], policy=META),
@@ -529,7 +536,9 @@ def main():
                       call=hook_answers({"kind": one("task", 0.9), "skill": one("writing-plans", 0.8),
                                          "pii": one("no", 0.9)}),
                       scan=clean, policy=META)
-    case("run_hook: a task does not name a skill", "writing-plans" in context_of(out), False)
+    case("run_hook: a task gets no skill hint", "Skill hint" in context_of(out), False)
+    case("run_hook: a task's Jev line still names the skill",
+         "skill: writing-plans 0.80" in context_of(out), True)
 
     out = jr.run_hook(json.dumps({"prompt": "Build the export"}), {"TYPESAFE_API_KEY": "test-key"},
                       call=hook_answers({"kind": one("build", 0.9), "skill": one("writing-plans", 0.3),
