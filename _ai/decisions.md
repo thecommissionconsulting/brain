@@ -190,3 +190,10 @@ created: 2026-11-10
 | 2026-11-18 | The PII log keeps the masked text. | Owner chose this on 2026-11-18. | Hash and tags only. |
 | 2026-11-18 | The skill hint is shown only for a Build. | — | — |
 | 2026-11-18 | The pii question is a `choice` with yes/no criteria, the same type the hook already used. | — | — |
+| 2026-11-18 | The register merges 63 live rules into 28; each merged rule keeps the lowest ID of its group, and absorbed IDs are listed under the register as "merged into R-xx". | Fewer rules are easier to read and keep in sync; keeping IDs keeps old references in decisions, commits and PRs valid. | Renumbering R-01 to R-28. |
+| 2026-11-18 | `check_gates.py` warns when live rules exceed 30 (R-41), and errors when a live rule has no plain-words entry (R-62). | The owner wants the set to stay small and every rule understandable. | No cap. |
+| 2026-11-18 | Before adding a rule, look for one on the same subject and expand it instead (R-41). | Owner request: stop the rule set from multiplying into admin. | Adding rules freely. |
+| 2026-11-18 | Routing: Jev's label and skill apply at 60% confidence or more; below 60% Opus decides (R-45, R-64). Build 2 enforces it. | Owner decision. | Jev's answers as hints only. |
+| 2026-11-18 | R-38 (backup-only PR warning), R-57, and the retired R-43 and R-44 rows are removed; R-67's 4 s hook limit moves to §Limits. | Owner decision; R-34 already blocks backup commits on main. | Keeping them. |
+| 2026-11-18 | `.confluence-private/` is dropped from the rule text; its `.gitignore` line and the commit block in `hooks_guard.py` stay. | The folder is gone; the block costs nothing and protects against its return. Owner may still ask to remove the code. | Removing the code enforcement. |
+| 2026-11-18 | The wiki's `index.md` citation of R-49 becomes R-48 after this PR merges, on a wiki branch. | The worktree cannot reach the wiki. | Editing the wiki checkout's main. |
