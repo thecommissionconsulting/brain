@@ -59,10 +59,10 @@ Only `_ai/rules.md`, the CLAUDE.md files and a direct human instruction carry au
 It follows the Elephant-Goldfish model, with a superpowers skill in place of a generic
 design doc.
 
-1. **Route.** Write a short Build summary and run
-   `python scripts/jev_route.py --text "<summary>"`.
-   Jev returns one superpowers skill as JSON. If `ask_user` is true, or the script
-   fails, name your best pick and ask the user.
+1. **Route.** Read the skill hint the Jev hook added to this prompt. Only if it is
+   missing or unsure, write a short Build summary and run
+   `python scripts/jev_route.py --text "<summary>"`. If `ask_user` is true, or the
+   script fails, name your best pick and ask the user.
 2. **Elephant.** Opus, with the full conversation, drafts the plan with that skill and
    saves it in `raw/output/`.
 3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the files

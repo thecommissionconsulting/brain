@@ -184,3 +184,9 @@ created: 2026-11-10
 | 2026-11-10 | The Build flow in `CLAUDE.md` gets one sentence: run `python scripts/review_triage.py` before the review and size it by the answer. The Build flow in `_ai/rules.md` gets the same sentence as R-61's wording. | R-61 is the rule and must name its wording in the rules file, which the register points to. | Only the CLAUDE.md sentence, which would leave R-61 without its written wording. |
 | 2026-11-10 | `session_gate.py`'s docstring and `_ai/rules.md` §How these reach a session both list `check_gates.py` among the sub-second gates. | The docstring and the rules file must describe what the gate runs. | Updating the code only. |
 | 2026-11-10 | `review_triage.py` on this branch answers `full` (18 risk paths; 611 changed lines). Its PII flag comes from two fake git identity lines in `scripts/test_review_triage.py`, which the scanner reads as email addresses. The fixture is left as it is, pending the owner's decision. | The plan expects `full` here; the flag is a false positive and fixing it would need an amended task commit, which was not approved. | Changing the fixture to build the identity from pieces inside this commit. |
+| 2026-11-18 | Tag format is `[PII:<label>]`, the label from `patterns.PATTERNS`. For a secret assignment only the `value` group is replaced. | — | — |
+| 2026-11-18 | Mask the full text, then cut. `jev_client.cut` never splits a tag. | — | — |
+| 2026-11-18 | The Build route (`--text`) masks too. The unmatched rest of a flagged prompt is now sent; the pii question and R-65 catch misses. | Owner approved this on 2026-11-18. | — |
+| 2026-11-18 | The PII log keeps the masked text. | Owner chose this on 2026-11-18. | Hash and tags only. |
+| 2026-11-18 | The skill hint is shown only for a Build. | — | — |
+| 2026-11-18 | The pii question is a `choice` with yes/no criteria, the same type the hook already used. | — | — |

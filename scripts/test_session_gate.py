@@ -82,6 +82,11 @@ def main():
     check("jev line: 4000 ms is not over", sg.jev_part(4000) == "jev 4000 ms", fails)
     check("jev line: 4001 ms is over (R-67)", sg.jev_part(4001) == "jev OVER 4001 ms (R-67)", fails)
 
+    print("pii line")
+    check("pii line: 2 new", sg.pii_part(2) == "pii 2 new (R-65): python scripts/jev_pii.py --list",
+          fails)
+    check("pii line: 0 new gives no part", sg.pii_part(0) is None, fails)
+
     print(f"\ntest_session_gate: {fails[1] - fails[0]} passed, {fails[0]} failed.")
     return 1 if fails[0] else 0
 

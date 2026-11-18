@@ -12,7 +12,8 @@ replaced by a setup hint. The content-walking lints (`check_frontmatter.py` 4.3s
 `check_links.py` 2.1s) stay in CI; they are too slow to pay for on every session.
 
 It also reports the median time of today's and yesterday's Jev calls from the decision
-log (R-67), and marks it OVER above 4 s.
+log (R-67), and marks it OVER above 4 s. It counts the Jev PII entries not yet reviewed
+(R-65), with the command that lists them.
 
 Always exits 0. This informs, it never blocks a session.
 """
@@ -80,6 +81,13 @@ def jev_part(ms):
     return f"jev {ms} ms"
 
 
+def pii_part(count):
+    """The session-line part for new Jev PII entries (R-65), or None when there are none."""
+    if count > 0:
+        return f"pii {count} new (R-65): python scripts/jev_pii.py --list"
+    return None
+
+
 def gate(label, script, cwd, parts, red, args=()):
     path = SCRIPTS / script
     tail = "".join(" " + arg for arg in args)
@@ -118,6 +126,14 @@ def main():
     jev = jev_part(jev_median(JEV_LOG))
     if jev is not None:
         parts.append(jev)
+
+    try:
+        import jev_pii
+        pii = pii_part(len(jev_pii.new_entries()))
+    except Exception:  # the PII count is optional; a failure adds no part
+        pii = None
+    if pii is not None:
+        parts.append(pii)
 
     print("vault gates: " + " | ".join(parts))
     for note in notes:

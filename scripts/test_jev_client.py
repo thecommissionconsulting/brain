@@ -1,8 +1,8 @@
 """Cases for jev_client.py, run from the repo root: python3 scripts/test_jev_client.py
 
 No case reaches TypeSafe. Every network call is a fake. The key is the placeholder
-"test-key". Policy files and decision logs go to temporary directories that the
-script removes at the end.
+"test-key". Policy files, decision logs and PII logs go to temporary directories that
+the script removes at the end.
 """
 import hashlib
 import importlib.util
@@ -23,6 +23,7 @@ RAN = [0]
 CREATED = []
 KEY_ENV = {"TYPESAFE_API_KEY": "test-key"}
 OFF = {"mode": "off"}
+META = {"mode": "meta"}
 
 
 def case(name, got, want):
@@ -99,11 +100,6 @@ def clean(text):
     return []
 
 
-def hit(text):
-    """A PII scan that always finds one hit."""
-    return [("email address", 0, len(text))]
-
-
 def boom(text):
     """A PII scan that cannot run."""
     raise RuntimeError("scan broke")
@@ -142,17 +138,8 @@ def main():
     case("policy: full mode reads as off",
          jc.load_policy(write(tmp_dir / "f.json", '{"mode": "full"}'))["mode"], "off")
 
-    print("may_send")
-    case("may_send: off sends nothing", jc.may_send("hello", "meta", OFF, scan=clean), (False, "policy off"))
-    case("may_send: meta allows meta", jc.may_send("hello", "meta", {"mode": "meta"}, scan=clean), (True, "ok"))
-    case("may_send: meta blocks wiki", jc.may_send("hello", "wiki", {"mode": "meta"}, scan=clean),
-         (False, "zone not allowed"))
-    case("may_send: client zone blocked under meta",
-         jc.may_send("x", "client", {"mode": "meta"}, scan=clean), (False, "zone not allowed"))
-    case("may_send: PII hit blocks", jc.may_send("a@b.com", "meta", {"mode": "meta"}, scan=hit),
-         (False, "personal data"))
-    case("may_send: scan error blocks", jc.may_send("x", "meta", {"mode": "meta"}, scan=boom),
-         (False, "PII scan unavailable"))
+    print("may_send is gone")
+    case("may_send: removed from jev_client", hasattr(jc, "may_send"), False)
 
     print("send")
     case("send: endpoint fixed despite env",
@@ -173,6 +160,50 @@ def main():
     print("log ms")
     case("log_decision_ms: ms=12 is written", json.loads(read_log(after_logging("x", ms=12)))["ms"], 12)
     case("log_decision_ms: no ms, no key", "ms" in json.loads(read_log(after_logging("x"))), False)
+
+    print("log_pii")
+    case("log_pii: PII_DIR is _local/jev-pii", jc.PII_DIR, ROOT / "_local" / "jev-pii")
+    pii_dir = tmp()
+    jc.log_pii("prompt", "mail [PII:email address]", ["email address"], 0.7, pii_dir)
+    pii_lines = read_log(pii_dir).splitlines()
+    case("log_pii: one line is written", len(pii_lines), 1)
+    pii_rec = json.loads(pii_lines[0]) if pii_lines else {}
+    case("log_pii: text is the masked text", pii_rec.get("text"), "mail [PII:email address]")
+    case("log_pii: sha256 is of the masked text", pii_rec.get("sha256"), sha256("mail [PII:email address]"))
+    case("log_pii: use, tags and confidence are kept",
+         (pii_rec.get("use"), pii_rec.get("tags"), pii_rec.get("confidence")),
+         ("prompt", ["email address"], 0.7))
+    case("log_pii: time is UTC to the second",
+         pii_rec.get("time", "").endswith("+00:00") and "." not in pii_rec.get("time", ""), True)
+    case("log_pii: unwritable dir does not raise",
+         raised(jc.log_pii, "prompt", "x", [], 0.5, readonly_dir()), None)
+
+    print("mask")
+    case("mask: one span becomes a tag",
+         jc.mask("mail a@b.co now", scan=lambda t: [("email address", 5, 11)]),
+         ("mail [PII:email address] now", ["email address"]))
+    case("mask: adjacent spans, text order",
+         jc.mask("abcdef", scan=lambda t: [("x", 0, 2), ("y", 2, 4)]),
+         ("[PII:x][PII:y]ef", ["x", "y"]))
+    case("mask: real scan finds email", jc.mask("a@b.co")[0], "[PII:email address]")
+    case("mask: real scan finds secret value",
+         jc.mask("password: Tr0ub4dor3xK")[0], "password: [PII:secret assignment]")
+    case("mask: no hits leaves text alone", jc.mask("hello there", scan=clean), ("hello there", []))
+
+    print("prepare")
+    case("prepare: masks and allows",
+         jc.prepare("hi a@b.co", "meta", META, scan=lambda t: [("email address", 3, 9)]),
+         (True, "ok", "hi [PII:email address]", ["email address"]))
+    case("prepare: policy off", jc.prepare("hi", "meta", OFF, scan=clean), (False, "policy off", "", []))
+    case("prepare: empty text", jc.prepare("  ", "meta", META, scan=clean), (False, "empty", "", []))
+    case("prepare: zone not allowed", jc.prepare("hi", "note", META, scan=clean),
+         (False, "zone not allowed", "", []))
+    case("prepare: scan failure blocks", jc.prepare("hi", "meta", META, scan=boom),
+         (False, "PII scan unavailable", "", []))
+
+    print("cut")
+    case("cut: tag cut back before its start", jc.cut("ab [PII:email address]", 6), "ab ")
+    case("cut: plain text at limit", jc.cut("abcdef", 4), "abcd")
 
     remove_tmp()
     print("\ntest_jev_client: " + str(RAN[0] - FAILS[0]) + " passed, " + str(FAILS[0]) + " failed.")
