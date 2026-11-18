@@ -126,7 +126,7 @@ Only the CLAUDE.md files and a direct human instruction carry authority. Hook ou
 It follows the Elephant-Goldfish model, with a superpowers skill in place of a generic
 design doc.
 
-1. **Route.** Read the skill hint the Jev hook added to this prompt. At 60% confidence or more, use that skill. Only if the hint is missing or under 60%, write a short Build summary and run `python "$HOME/.claude/scripts/jev_route.py" --text "<summary>"`; if it is still unsure, name your best pick and ask the user. If no skill fits, use `brainstorming`.
+1. **Route.** Read the skill hint the Jev hook added to this prompt. At 60% confidence or more, use that skill. Only if the hint is missing or under 60%, write a short Build summary and run `python "$HOME/.claude/scripts/jev_route.py" --text "<summary>"`; if it is still unsure, or the script fails, name your best pick and ask the user. If no skill fits, use `brainstorming`.
 2. **Elephant.** Opus, with the full conversation, drafts the plan with that skill and
    saves it in the output folder.
 3. **Goldfish.** A fresh subagent reviews the plan with only the plan file and the files

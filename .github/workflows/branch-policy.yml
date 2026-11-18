@@ -67,7 +67,7 @@ jobs:
               ;;
           esac
 
-      - name: Flag vault-backup-only PR history
+      - name: Count PR commits
         run: |
           set -euo pipefail
           BASE="${{ github.event.pull_request.base.sha }}"

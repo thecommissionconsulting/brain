@@ -84,7 +84,7 @@ def check_paths(paths, where):
             err(f"R-30  {where}: `{p}` is in a never-committed zone. "
                 f"If this was `git add -f`, unstage it: git rm --cached '{p}'")
         if NESTED_GIT.search(p):
-            err(f"R-30  {where}: `{p}` is inside a nested git repo. "
+            err(f"R-05  {where}: `{p}` is inside a nested git repo. "
                 f"Never nest a repo in this vault.")
 
 
